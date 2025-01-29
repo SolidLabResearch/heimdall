@@ -102,8 +102,9 @@ export class RSPQLParser {
         });
         for (let i = 0; i <= parsed_sparql_query.variables.length; i++) {
             if (parsed_sparql_query.variables[i] !== undefined) {
-                parsed.projection_variables.push(parsed_sparql_query.variables[i].variable.value);
-                parsed.aggregation_function = parsed_sparql_query.variables[i].expression.aggregation;
+                
+//                parsed.projection_variables.push(parsed_sparql_query.variables[i].variable.value);
+             //    parsed.aggregation_function = parsed_sparql_query.variables[i].expression.aggregation;
             }
         }
     }

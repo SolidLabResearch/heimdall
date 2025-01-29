@@ -126,7 +126,6 @@ export class QueryRegistry {
         }
         if (array_length === 0) {
             logger.info({ query_hashed }, 'array_length_is_zero');
-
         }
         logger.info({ query_hashed }, 'isomorphic_check_done')
         return false;

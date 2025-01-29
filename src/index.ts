@@ -10,7 +10,7 @@ function getTimestamp() {
 const timestamp = getTimestamp();
 
 const log_file = fs.createWriteStream(`aggregator-${timestamp}.log`, { flags: 'a' });
-
+const resource_used_log_file = `aggregator_resource_used-${timestamp}.csv`;
 const logger = bunyan.createLogger({
     name: 'solid-stream-aggregator',
     streams: [
@@ -29,6 +29,25 @@ const logger = bunyan.createLogger({
     }
 });
 
+interface MemoryUsage {
+    rss: number;
+    heapTotal: number;
+    heapUsed: number;
+    external: number;
+}
+
+fs.writeFileSync(resource_used_log_file, `timestamp, cpu_user, cpu_system, rss, heapTotal, heapUsed, external\n`);
+
+
+function logCpuMemoryUsage() {
+    const cpuUsage = process.cpuUsage(); // in microseconds
+    const memoryUsage: MemoryUsage = process.memoryUsage(); // in bytes
+    const timestamp = Date.now();
+    const logData = `${timestamp},${cpuUsage.user},${memoryUsage.rss},${memoryUsage.heapTotal},${memoryUsage.heapUsed},${memoryUsage.external}\n`;
+    fs.appendFileSync(resource_used_log_file, logData);
+}
+
+setInterval(logCpuMemoryUsage, 500);
 
 const program = require('commander');
 
