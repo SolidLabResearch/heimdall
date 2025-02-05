@@ -8,6 +8,7 @@ import { BindingsWithTimestamp } from "../../utils/Types";
 import { hash_string_md5 } from "../../utils/Util";
 import { Credentials, aggregation_object } from "../../utils/Types";
 import { NotificationStreamProcessor } from "./NotificationStreamProcessor";
+import { N3ReasonerService } from "../reasoner/N3Reasoner";
 const WebSocketClient = require('websocket').client;
 const websocketConnection = require('websocket').connection;
 const parser = new RSPQLParser();
@@ -17,6 +18,7 @@ const parser = new RSPQLParser();
  */
 export class AggregatorInstantiator {
     public query: string;
+    public rules: string;
     public rsp_engine: RSPEngine;
     public rsp_emitter: EventEmitter;
     public event_emitter: EventEmitter;
@@ -30,6 +32,7 @@ export class AggregatorInstantiator {
     /**
      * Creates an instance of AggregatorInstantiator.
      * @param {string} query - The RSPQL query.
+     * @param {string} rules - The rules for the query.
      * @param {number} from_timestamp - The timestamp from where the query is to be executed.
      * @param {number} to_timestamp - The timestamp to where the query is to be executed.
      * @param {*} logger - The logger object.
@@ -37,8 +40,9 @@ export class AggregatorInstantiator {
      * @param {any} event_emitter - The event emitter object.
      * @memberof AggregatorInstantiator
      */
-    public constructor(query: string, from_timestamp: number, to_timestamp: number, logger: any, query_type: string, event_emitter: any) {
+    public constructor(query: string, rules: string, from_timestamp: number, to_timestamp: number, logger: any, query_type: string, event_emitter: any) {
         this.query = query;
+        this.rules = rules;
         this.logger = logger;
         this.event_emitter = event_emitter;
         this.hash_string = hash_string_md5(query);
@@ -111,9 +115,12 @@ export class AggregatorInstantiator {
                 for (const item of iterable) {
                     const aggregation_event_timestamp = new Date().getTime();
                     const data = item.value;
+                    const aggregation_event = this.generate_aggregation_event(data, aggregation_event_timestamp, this.stream_array, window_timestamp_from, window_timestamp_to);
+                    const reasoner = new N3ReasonerService(this.rules);
+                    const reasoned_result = await reasoner.reason(aggregation_event);
                     const aggregation_object: aggregation_object = {
                         query_hash: this.hash_string,
-                        aggregation_event: this.generate_aggregation_event(data, aggregation_event_timestamp, this.stream_array, window_timestamp_from, window_timestamp_to),
+                        aggregation_event: reasoned_result,
                         aggregation_window_from: this.from_date,
                         aggregation_window_to: this.to_date,
                     };
