@@ -1,5 +1,5 @@
-import { Logger, LogLevel } from "./Logger";
-
+import { Logger } from "./Logger";
+import { LogLevel } from "./LoggerEnums";
 describe('Logger', () => {
     it('should initialize', () => {
         const logLevel: LogLevel = LogLevel.INFO;

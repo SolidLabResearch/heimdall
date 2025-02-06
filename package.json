@@ -24,6 +24,7 @@
     "devDependencies": {
         "@types/bunyan": "^1.8.11",
         "@types/jest": "^29.5.12",
+        "@types/pidusage": "^2.0.5",
         "@types/websocket": "^1.0.6",
         "@typescript-eslint/parser": "^6.21.0",
         "esdoc": "^1.1.0",
@@ -41,6 +42,8 @@
         "@types/axios": "^0.14.0",
         "bunyan": "^1.8.15",
         "css-auth-login": "^1.0.8",
+        "eyereasoner": "^18.4.6",
+        "pidusage": "^3.0.2",
         "rate-limited-ldp-communication": "^1.0.5",
         "rdflib": "^2.2.31",
         "rsp-js": "file:../RSP/RSP-JS",

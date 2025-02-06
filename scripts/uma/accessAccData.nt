@@ -1,0 +1,31 @@
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX eu-gdpr: <https://w3id.org/dpv/legal/eu/gdpr#>
+PREFIX oac: <https://w3id.org/oac#>
+PREFIX odrl: <http://www.w3.org/ns/odrl/2/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+PREFIX ex: <http://example.org/>
+
+<http://example.org/aggregator-request> a odrl:Request ;
+    odrl:uid ex:aggregator-request ;
+    odrl:profile oac: ;
+    dcterms:description "Aggregator requests to read patient's accelerometer data for aggregation purposes" ;
+    odrl:permission <http://example.org/aggregator-request-permission> .
+
+<http://example.org/aggregator-request-permission> a odrl:Permission ;
+    odrl:action odrl:read ;
+    odrl:target <http://localhost:3000/pod1/acc-x/> ;
+    odrl:assigner <http://localhost:3000/pod1/profile/card#me> ;
+    odrl:assignee <http://localhost:3000/aggregator/profile/card#me> ;
+    odrl:constraint <http://example.org/aggregator-request-permission-purpose>,
+        <http://example.org/aggregator-request-permission-lb> .
+
+<http://example.org/aggregator-request-permission-purpose> a odrl:Constraint ;
+    odrl:leftOperand odrl:purpose ; # can also be oac:Purpose, to conform with OAC profile
+    odrl:operator odrl:eq ;
+    odrl:rightOperand ex:aggregation .
+
+<http://example.org/aggregator-request-permission-lb> a odrl:Constraint ;
+    odrl:leftOperand oac:LegalBasis ;
+    odrl:operator odrl:eq ;
+    odrl:rightOperand eu-gdpr:A9-2-a .
