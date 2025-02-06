@@ -1,5 +1,7 @@
 # Solid Stream Aggregator
 
+<img src="./solid-stream-aggregator.webp" alt="Logo" width="150">
+
 The Solid Stream Aggregator is a service which can be used on top of one or multiple Solid Pods and constructs a materialized view on top of the stream measurements stored in the Solid Pod. The Solid Stream Aggregator currently functions under the assumptions that the Solid Pod uses the [LDES in LDP](https://woutslabbinck.github.io/LDESinLDP/) specification to store the stream measrements. The aggregated results are sent to the client requesting the data, as well as the materialized view was published to the Solid Stream Aggregator's Solid Pod for further re-use by other clients, and processes which have similar requirements of the aggregated results.
 
 ## Requirements 
