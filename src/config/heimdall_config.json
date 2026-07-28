@@ -1,4 +1,4 @@
 {
     "aggregation_pod_ldes_location" : "http://localhost:3000/aggregation_pod/",
-    "aggregator_rate_limit": 30
+    "heimdall_rate_limit": 30
 }

@@ -11,6 +11,11 @@ import { AggregationFocusExtractor } from "../service/parsers/AggregationFocusEx
 import { getAuthenticatedSession } from "@treecg/versionawareldesinldp";
 import { accessResource } from "../service/authorization/AccessResource";
 import * as AGG_CONFIG from '../config/pod_credentials.json';
+import {
+    HEIMDALL_WEBSOCKET_PROTOCOL,
+    LEGACY_WEBSOCKET_PROTOCOL,
+    resolveAcceptedWebSocketProtocol,
+} from "./websocketProtocols";
 
 /**
  * Class for handling the Websocket server.
@@ -53,7 +58,7 @@ export class WebSocketHandler {
      * Handle the Websocket server.
      * It retrieves the query from the client and processes it.
      * It also sends the result to the client.
-     * It also stores the aggregation event in the Solid Pod of the Solid Stream Aggregator.
+     * It also stores the aggregation event in Heimdall's Solid Pod.
      * @memberof WebSocketHandler
      */
     public handle_wss() {
@@ -64,7 +69,12 @@ export class WebSocketHandler {
             console.log(`Connection received from ${request.remoteAddress}`);
         });
         this.websocket_server.on('request', async (request: any) => {
-            const connection = request.accept('solid-stream-aggregator-protocol', request.origin);
+            const acceptedProtocol = resolveAcceptedWebSocketProtocol(request.requestedProtocols);
+            if (acceptedProtocol === null) {
+                request.reject(1002, `Unsupported WebSocket protocol. Supported protocols: ${HEIMDALL_WEBSOCKET_PROTOCOL}, ${LEGACY_WEBSOCKET_PROTOCOL}`);
+                return;
+            }
+            const connection = request.accept(acceptedProtocol, request.origin);
             connection.on('message', async (message: WebSocket.Message) => {
                 console.log(`Message received from ${connection.remoteAddress}`);
                 if (message.type === 'utf8') {
@@ -79,8 +89,8 @@ export class WebSocketHandler {
                             this.logger.info({ query_id: query_hashed }, `query_preprocessed`);
                             this.set_connections(query_hashed, connection);
                             if (await this.if_authenticated()) {
-                                if (await this.if_authorized(ldes_query)) {
-                                    this.process_query(ldes_query, width, query_type, this.event_emitter, this.logger);
+                                if (await this.if_authorized()) {
+                                    this.process_query(ldes_query, width, query_type, this.event_emitter);
                                 }
                             }
                         }
@@ -145,7 +155,7 @@ export class WebSocketHandler {
         });
     }
     /**
-     * Publish the aggregation event to the Solid Pod of the Solid Stream Aggregator.
+     * Publish the aggregation event to Heimdall's Solid Pod.
      * @param {*} aggregation_event - The aggregation event to be published.
      * @param {LDESPublisher} aggregation_publisher - The LDES Publisher class instance.
      * @memberof WebSocketHandler
@@ -186,7 +196,7 @@ export class WebSocketHandler {
         }, checkInterval);
     }
     /**
-     * Publish the aggregation event to the Solid Pod of the Solid Stream Aggregator.
+     * Publish the aggregation event to Heimdall's Solid Pod.
      * @memberof WebSocketHandler
      */
     public aggregation_event_publisher() {
@@ -246,7 +256,7 @@ export class WebSocketHandler {
      * @param {EventEmitter} event_emitter - The event emitter object.
      * @memberof WebSocketHandler
      */
-    public process_query(query: string, width: number, query_type: string, event_emitter: EventEmitter, logger: any) {
+    public process_query(query: string, width: number, query_type: string, event_emitter: EventEmitter) {
         QueryHandler.handle_ws_query(query, width, this.query_registry, this.logger, this.connections, query_type, event_emitter);
     }
 
@@ -288,7 +298,11 @@ export class WebSocketHandler {
         this.logger.info({ query_id: query_hashed }, `websocket_connection_set_for_query`);
     }
 
-    public async if_authenticated() {
+    /**
+     * Check whether the configured aggregation pod credentials can authenticate.
+     * @returns {Promise<boolean>} Whether the configured session can authenticate.
+     */
+    public async if_authenticated(): Promise<boolean> {
         const session = await getAuthenticatedSession({
             webId: AGG_CONFIG.aggregation_pod_web_id,
             password: AGG_CONFIG.aggregation_pod_password,
@@ -303,7 +317,11 @@ export class WebSocketHandler {
         }
     }
 
-    public async if_authorized(query: string): Promise<boolean> {
+    /**
+     * Check whether the static healthcare policy authorizes the request.
+     * @returns {Promise<boolean>} Whether the request is authorized.
+     */
+    public async if_authorized(): Promise<boolean> {
         const healthcare_patient_policy =
             `PREFIX dcterms: <http://purl.org/dc/terms/>
 PREFIX eu-gdpr: <https://w3id.org/dpv/legal/eu/gdpr#>

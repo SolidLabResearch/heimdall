@@ -3,6 +3,7 @@ import { QueryRegistry } from "../service/query-registry/QueryRegistry";
 import { AggregationDispatcher } from "../service/result-dispatcher/AggregationDispatcher";
 import { RequestBody } from "../utils/Types";
 import { hash_string_md5 } from "../utils/Util";
+import { HEIMDALL_WEBSOCKET_PROTOCOL } from "./websocketProtocols";
 const websocketConnection = require('websocket').connection;
 const WebSocketClient = require('websocket').client;
 const N3 = require('n3');
@@ -26,7 +27,7 @@ export class QueryHandler {
     /**
      * Handle the Websocket query from the client.
      * It checks if the query is unique and if it is, then it registers the query in the QueryRegistry and if it is not, then it sends the aggregated events to the client.
-     * The non unique query is the query that is already registered in the QueryRegistry, and it uses the Function Ontology Description from the Solid Stream Aggregator's Solid Pod
+     * The non unique query is the query that is already registered in the QueryRegistry, and it uses the Function Ontology Description from Heimdall's Solid Pod
      * To get the aggregated events and send them to the client.
      * @static
      * @param {string} query - The query to be handled (in RSPQL).
@@ -40,7 +41,7 @@ export class QueryHandler {
      */
     public static async handle_ws_query(query: string, width: number, query_registry: QueryRegistry, logger: any, websocket_connections: any, query_type: string, event_emitter: any) {
         const aggregation_dispatcher = new AggregationDispatcher(query);
-        let to_timestamp = new Date().getTime(); // current time
+        const to_timestamp = new Date().getTime(); // current time
         const from_timestamp = new Date(to_timestamp - (width)).getTime(); // latest seconds ago
         const query_hashed = hash_string_md5(query);
         const is_query_unique = query_registry.register_query(query, query_registry, from_timestamp, to_timestamp, logger, query_type, event_emitter);
@@ -64,7 +65,7 @@ export class QueryHandler {
                 else {
                     const aggregated_events_exist = await aggregation_dispatcher.if_aggregated_events_exist();
                     if (aggregated_events_exist) {
-                        logger.info({ query_id: query_hashed }, 'aggregated_events_exist_for_query_in_aggregator_pod');
+                        logger.info({ query_id: query_hashed }, 'aggregated_events_exist_for_query_in_heimdall_pod');
                         const aggregation_stream = await aggregation_dispatcher.dispatch_aggregated_events({});
                         aggregation_stream.on('data', async (data) => {
                             const store = new N3.Store(data.quads);
@@ -86,13 +87,13 @@ export class QueryHandler {
 
     }
     /**
-     * Connect with the Websocket server of the Solid Stream Aggregator.
+     * Connect with Heimdall's WebSocket server.
      * @static
      * @param {string} wssURL - The URL of the Websocket server.
      * @memberof QueryHandler
      */
     static async connect_with_server(wssURL: string) {
-        this.client.connect(wssURL, 'solid-stream-aggregator-protocol');
+        this.client.connect(wssURL, HEIMDALL_WEBSOCKET_PROTOCOL);
         this.client.on('connect', (connection: typeof websocketConnection) => {
             QueryHandler.connection = connection;
         });
@@ -102,7 +103,7 @@ export class QueryHandler {
         });
     }
     /**
-     * Send a message to the Websocket server of the Solid Stream Aggregator.
+     * Send a message to Heimdall's WebSocket server.
      * @static
      * @param {string} message - The message to be sent to the server.
      * @memberof QueryHandler

@@ -1,9 +1,10 @@
 import { RSPQLParser } from "../parsers/RSPQLParser";
 import { Logger, ILogObj } from "tslog";
-import { AggregatorInstantiator } from "../aggregator/AggregatorInstantiator";
+import { HeimdallInstantiator } from "../heimdall/HeimdallInstantiator";
 import { is_equivalent } from "rspql-query-equivalence";
 import { WriteLockArray } from "../../utils/query-registry/Util";
 import { hash_string_md5 } from "../../utils/Util";
+import { HEIMDALL_WEBSOCKET_PROTOCOL } from "../../server/websocketProtocols";
 const websocketConnection = require('websocket').connection;
 const WebSocketClient = require('websocket').client;
 /**
@@ -60,12 +61,12 @@ export class QueryRegistry {
             The query is not already executing or computed ; it is unique. So, just compute it and send it via the websocket.
             */
             logger.info({}, 'query_is_unique');
-            new AggregatorInstantiator(rspql_query, from_timestamp, to_timestamp, logger, query_type, event_emitter);
+            new HeimdallInstantiator(rspql_query, from_timestamp, to_timestamp, logger, query_type, event_emitter);
             return true;
         }
         else {
             /*
-            The query is already computed and stored in the Solid Stream Aggregator's Solid Pod. So, read from there and send via a websocket.
+            The query is already computed and stored in Heimdall's Solid Pod. So, read from there and send via a websocket.
             */
             logger.info({}, 'query_is_not_unique');
             this.logger.debug(`The query you have registered is already executing.`);
@@ -202,7 +203,7 @@ export class QueryRegistry {
      * @memberof QueryRegistry
      */
     static async connect_with_server(websocketURL: string) {
-        this.client.connect(websocketURL, 'solid-stream-aggregator-protocol');
+        this.client.connect(websocketURL, HEIMDALL_WEBSOCKET_PROTOCOL);
         this.client.on('connect', (connection: typeof websocketConnection) => {
             QueryRegistry.connection = connection;
         });

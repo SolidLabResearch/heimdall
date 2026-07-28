@@ -1,7 +1,7 @@
 {
     "name": "solid-stream-aggregator",
     "version": "1.0.0",
-    "description": "Aggregation on top of streams generated from a Solid Pod",
+    "description": "Heimdall, a Solid Stream Analytics Service built on top of streams generated from a Solid Pod",
     "main": "dist/index.js",
     "scripts": {
         "start": "npx tsc && cp -r ./src/static ./dist && node --max-old-space-size=8192 dist/index.js ",

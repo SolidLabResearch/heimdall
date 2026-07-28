@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { SubscriptionServerNotification } from '../Types';
-import * as AGGREGATOR_SETUP from '../../config/aggregator_setup.json';
+import * as HEIMDALL_SETUP from '../../config/heimdall_setup.json';
+import { resolveHeimdallSetupConfig } from '../../config/heimdallConfig';
 const N3 = require('n3');
 const parser = new N3.Parser();
 
@@ -43,6 +44,7 @@ export async function extract_subscription_server(resource: string): Promise<Sub
             }
         }
     } catch (error) {
+        console.error(error);
         throw new Error("Error while extracting subscription server.");
     }
 }
@@ -79,18 +81,19 @@ export async function extract_ldp_inbox(ldes_stream_location: string) {
 
 
 /**
- * Creates a subscription to the Caching Service's HTTP Server for the given inbox location to read the notifications.
+ * Creates a subscription to Heimdall's HTTP server for the given inbox location to read the notifications.
  * @param {string} subscription_server - The subscription server (of the Solid Server) where the subscription will be created.
  * @param {string} inbox_location - The location of the inbox where the notifications are written by the client(s).
  * @returns {Promise<string>} - A promise which returns the response text.
  */
 export async function create_subscription(subscription_server: string, inbox_location: string) {
     try {
+        const heimdallSetupConfig = resolveHeimdallSetupConfig(HEIMDALL_SETUP);
         const subscription = {
             "@context": ["https://www.w3.org/ns/solid/notification/v1"],
             "type": "http://www.w3.org/ns/solid/notifications#WebhookChannel2023",
             "topic": `${inbox_location}`,
-            "sendTo": `${AGGREGATOR_SETUP.aggregator_http_server_url}`,
+            "sendTo": `${heimdallSetupConfig.heimdallHttpServerUrl}`,
         }
         const response = await fetch(subscription_server, {
             method: 'POST',

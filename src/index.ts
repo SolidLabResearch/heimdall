@@ -2,6 +2,10 @@ import { HTTPServer } from "./server/HTTPServer";
 import * as bunyan from 'bunyan';
 import * as fs from 'fs';
 
+/**
+ * Build a filesystem-safe timestamp string for runtime log filenames.
+ * @returns {string} The current local timestamp.
+ */
 function getTimestamp() {
     const now = new Date();
     return `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}-${now.getDate().toString().padStart(2, '0')}-${now.getHours().toString().padStart(2, '0')}-${now.getMinutes().toString().padStart(2, '0')}-${now.getSeconds().toString().padStart(2, '0')}`;
@@ -9,10 +13,10 @@ function getTimestamp() {
 
 const timestamp = getTimestamp();
 
-const log_file = fs.createWriteStream(`aggregator-${timestamp}.log`, { flags: 'a' });
-const resource_used_log_file = `aggregator_resource_used-${timestamp}.csv`;
+const log_file = fs.createWriteStream(`heimdall-${timestamp}.log`, { flags: 'a' });
+const resource_used_log_file = `heimdall_resource_used-${timestamp}.csv`;
 const logger = bunyan.createLogger({
-    name: 'solid-stream-aggregator',
+    name: 'heimdall',
     streams: [
         {
             level: 'info',
@@ -39,6 +43,10 @@ interface MemoryUsage {
 fs.writeFileSync(resource_used_log_file, `timestamp, cpu_user, cpu_system, rss, heapTotal, heapUsed, external\n`);
 
 
+/**
+ * Append a resource-usage sample to the runtime CSV log.
+ * @returns {void}
+ */
 function logCpuMemoryUsage() {
     const cpuUsage = process.cpuUsage(); // in microseconds
     const memoryUsage: MemoryUsage = process.memoryUsage(); // in bytes
@@ -53,8 +61,8 @@ const program = require('commander');
 
 program
     .version('0.0.1')
-    .description('Aggregating LDES streams from a Solid Pod.')
-    .name('solid-stream-aggregator')
+    .description('Heimdall, a Solid Stream Analytics Service.')
+    .name('heimdall')
 
 program
     .command('aggregation')

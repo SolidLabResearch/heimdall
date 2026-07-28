@@ -15,7 +15,9 @@ import { hash_string_md5 } from "../../utils/Util";
 import { TREE } from "@treecg/ldes-snapshot";
 import { Session } from "@inrupt/solid-client-authn-node";
 import { create_subscription, extract_ldp_inbox, extract_subscription_server } from "../../utils/notifications/Util";
-import * as AGGREGATOR_SETUP from '../../config/aggregator_setup.json'
+import * as HEIMDALL_SETUP from '../../config/heimdall_setup.json';
+import { resolveHeimdallSetupConfig } from "../../config/heimdallConfig";
+import { HEIMDALL_WEBSOCKET_PROTOCOL } from "../../server/websocketProtocols";
 /**
  * Class for streaming the events from the Solid Pod to the RSP Engine by reading the events and converting the events stored into files into a stream.
  * @class DecentralizedFileStreamer
@@ -292,17 +294,18 @@ export class DecentralizedFileStreamer {
     /**
      * Subscribes to the webhook notification of the LDES stream to get the notifications of when new events are being added to the Solid Pod.
      * @param {string} ldes_stream - The LDES stream URL.
-     * @returns {Promise<void>} - Subscribes and then the new events are sent to the Solid Stream Aggregator's HTTP server.
+     * @returns {Promise<void>} - Subscribes and then the new events are sent to Heimdall's HTTP server.
      * @memberof DecentralizedFileStreamer
      */
     async subscribe_webhook_notification(ldes_stream: string): Promise<void> {
+        const heimdallSetupConfig = resolveHeimdallSetupConfig(HEIMDALL_SETUP);
         const solid_server = ldes_stream.split("/").slice(0, 3).join("/");
         const webhook_notification_server = solid_server + "/.notifications/WebhookChannel2023/";
         const post_body = {
             "@context": [],
             "type": "http://www.w3.org/ns/solid/notifications#WebhookChannel2023",
             "topic": `${ldes_stream}`,
-            "sendTo": `${AGGREGATOR_SETUP.aggregator_http_server_url}`
+            "sendTo": `${heimdallSetupConfig.heimdallHttpServerUrl}`
         };
 
         const response = await fetch(webhook_notification_server, {
@@ -415,7 +418,7 @@ export class DecentralizedFileStreamer {
         return await session_with_credentials(credentials);
     }
     /**
-     * Send a message to the websocket server of the Solid Stream Aggregator.
+     * Send a message to Heimdall's WebSocket server.
      * @static
      * @param {string} message - The message to send to the server (which in this case is the generated aggregation event).
      * @memberof DecentralizedFileStreamer
@@ -432,13 +435,13 @@ export class DecentralizedFileStreamer {
     }
 
     /**
-     * Connect with the Websocket server of the Solid Stream Aggregator.
+     * Connect with Heimdall's WebSocket server.
      * @static
      * @param {string} wssURL - The URL of the websocket server.
      * @memberof DecentralizedFileStreamer
      */
     static async connect_with_server(wssURL: string) {
-        this.client.connect(wssURL, 'solid-stream-aggregator-protocol');
+        this.client.connect(wssURL, HEIMDALL_WEBSOCKET_PROTOCOL);
         this.client.on('connect', (connection: typeof websocketConnection) => {
             DecentralizedFileStreamer.connection = connection;
         });

@@ -17,7 +17,7 @@ export class GETHandler {
     public static async handle(req: IncomingMessage, res: ServerResponse, query_registry: QueryRegistry) {
         if (req.url !== undefined) {
             /**
-             * The following API path of the Solid Stream Aggregator is used to clear all of the registered queries from the query registry.
+             * The following API path of Heimdall is used to clear all registered queries from the query registry.
              */
             if (req.url === '/clearQueryRegistry') {
                 query_registry.delete_all_queries_from_the_registry();
@@ -28,7 +28,7 @@ export class GETHandler {
             const endpoint = req.url;
             console.log('Endpoint: ' + endpoint);
             /**
-             * The API path showcases a default HTML Page for the Solid Stream Aggregator.
+             * The API path showcases a default HTML page for Heimdall.
              */
             const file = fs.readFileSync('dist/static/index.html');
             res.writeHead(200, { 'Content-Type': 'text/html' });
