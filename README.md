@@ -1,7 +1,5 @@
 # Heimdall
 
-<img src="./heimdall.webp" alt="Logo" width="150">
-
 Heimdall, a Solid Stream Analytics Service, can be used on top of one or multiple Solid Pods and constructs a materialized view on top of the stream measurements stored in the Solid Pod. Heimdall currently functions under the assumption that the Solid Pod uses the [LDES in LDP](https://woutslabbinck.github.io/LDESinLDP/) specification to store the stream measurements. The aggregated results are sent to the client requesting the data, and the materialized view is published to Heimdall's Solid Pod for further reuse by other clients and processes with similar aggregated-result requirements.
 
 ## Requirements 
