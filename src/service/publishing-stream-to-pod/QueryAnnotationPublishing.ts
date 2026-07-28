@@ -15,7 +15,7 @@ const ldfetch = require('ldfetch');
 const fetch = new ldfetch({});
 /**
  * The QueryAnnotationPublishing class is responsible for publishing the generated aggregation events from the RSP Engine with the
- * Function Ontology Metadata to the LDP container in a LDES in LDP fashion to the Solid Pod of the Aggregator. The aggregator's Solid Pod stores the materialized results.
+ * Function Ontology Metadata to the LDP container in a LDES in LDP fashion to Heimdall's Solid Pod. Heimdall's Solid Pod stores the materialized results.
  * @class QueryAnnotationPublishing
  */
 export class QueryAnnotationPublishing {
@@ -36,8 +36,8 @@ export class QueryAnnotationPublishing {
 
     /**
      * Published the generated aggregation events from the RSP Engine with the
-     * Function Ontology Metadata to the LDP container in a LDES in LDP fashion to the
-     * Solid Pod of the Aggregator. The aggregator's Solid Pod stores the materialized results
+     * Function Ontology Metadata to the LDP container in a LDES in LDP fashion to
+     * Heimdall's Solid Pod. Heimdall's Solid Pod stores the materialized results
      * Which can be used, and reused by other query processes.
      * @param {string} query - The RSPQL query.
      * @param {string} ldes_in_ldp_url - The URL of the LDES in LDP inside the Solid Pod.
