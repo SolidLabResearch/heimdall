@@ -1,6 +1,6 @@
 import { RSPQLParser } from "../parsers/RSPQLParser";
 const parser: RSPQLParser = new RSPQLParser();
-import * as AGG_CONFIG from '../../config/aggregator_config.json';
+import * as HEIMDALL_CONFIG from '../../config/heimdall_config.json';
 import { RateLimitedLDPCommunication } from "rate-limited-ldp-communication";
 import { filterRelation, ILDESinLDPMetadata, LDESinLDP, MetadataParser } from "@treecg/versionawareldesinldp";
 const ld_fetch = require('ldfetch');
@@ -14,6 +14,7 @@ import { TREE } from "@treecg/ldes-snapshot";
 import { DataFactory, Store } from "n3";
 import { aggregationDispatcherType } from "../../utils/Types";
 import { Literal } from "n3";
+import { resolveHeimdallRuntimeConfig } from "../../config/heimdallConfig";
 const { namedNode } = DataFactory;
 
 /**
@@ -31,9 +32,10 @@ export class AggregationDispatcher {
      * @memberof AggregationDispatcher
      */
     public constructor(query: string) {
+        const heimdallConfig = resolveHeimdallRuntimeConfig(HEIMDALL_CONFIG);
         this.query = query;
-        this.communication = new RateLimitedLDPCommunication(AGG_CONFIG.aggregator_rate_limit);
-        this.aggregation_ldes = new LDESinLDP(AGG_CONFIG.aggregation_pod_ldes_location, this.communication)
+        this.communication = new RateLimitedLDPCommunication(heimdallConfig.heimdallRateLimit);
+        this.aggregation_ldes = new LDESinLDP(heimdallConfig.aggregationPodLdesLocation, this.communication)
     }
 
     /**

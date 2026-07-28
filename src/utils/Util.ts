@@ -49,13 +49,13 @@ export async function measureExecutionTimeAsync(func: () => Promise<void>, compo
 }
 
 /**
- * Create an aggregator pod.
- * @returns {Promise<boolean>} - Returns true if the aggregator pod was created successfully, otherwise false.
+ * Create a Heimdall pod.
+ * @returns {Promise<boolean>} - Returns true if the Heimdall pod was created successfully, otherwise false.
  */
-export async function create_aggregator_pod(): Promise<boolean> {
+export async function create_heimdall_pod(): Promise<boolean> {
     exec('npx community-solid-server --config src/server/aggregator-pod/config.json -f ./aggregation-data/ --seededPodConfigJson src/server/aggregator-pod/account.json', (err: any, stdout: any) => {
         if (stdout.code !== 0) {
-            console.log('Error: Failed to create aggregator pod');
+            console.log('Error: Failed to create Heimdall pod');
             return false;
         }
         else {
@@ -120,7 +120,7 @@ export function insertion_sort(arr: string[]): string[] {
 /**
  * Find relevant streams in a Solid Pod.
  * @param {string} solid_pod_url - The URL of the Solid Pod.
- * @param {string[]} interest_metrics - The array of interest metrics which are relevant and being searched inside the aggregator pod.
+ * @param {string[]} interest_metrics - The array of interest metrics which are relevant and being searched inside Heimdall's pod.
  * @returns {Promise<string[]>} - The relevant streams.
  */
 export async function find_relevant_streams(solid_pod_url: string, interest_metrics: string[]): Promise<string[]> {
@@ -151,7 +151,7 @@ export async function find_relevant_streams(solid_pod_url: string, interest_metr
 /**
  * Check if relevant streams exist in a Solid Pod.
  * @param {string} solid_pod_url - The URL of the Solid Pod.
- * @param {string[]} interest_metrics - The array of interest metrics which are relevant and being searched inside the aggregator pod.
+ * @param {string[]} interest_metrics - The array of interest metrics which are relevant and being searched inside Heimdall's pod.
  * @returns {Promise<boolean>} - Returns true if relevant streams exist, otherwise false.
  */
 export async function if_exists_relevant_streams(solid_pod_url: string, interest_metrics: string[]): Promise<boolean> {

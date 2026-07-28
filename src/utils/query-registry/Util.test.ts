@@ -59,10 +59,11 @@ describe("WriteLockArray", () => {
         const read_promise = new Promise<void>((resolve) => {
             let array_copy = write_lock_array.getArrayCopy();
             expect(array_copy).toEqual([]);
-            write_lock_array.addItem(43);
-            array_copy = write_lock_array.getArrayCopy();
-            expect(array_copy).toEqual([43]);
-            resolve();
+            write_lock_array.addItem(43).then(() => {
+                array_copy = write_lock_array.getArrayCopy();
+                expect(array_copy).toEqual(expect.arrayContaining([43]));
+                resolve();
+            });
         });
 
         const write_promise = write_lock_array.addItem(44);

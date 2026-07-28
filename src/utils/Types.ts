@@ -14,7 +14,7 @@ export type RequestBody = {
     query_type: string;
 }
 
-export type AggregatorServerOptions = {
+export type HeimdallServerOptions = {
     port: number;
     solid_server_url: string;
 }

@@ -95,7 +95,7 @@ export class NotificationStreamProcessor {
              * The difference between POST and PATCH in our context of the aggregation is that with POST, the notification received and being processed is
              * a "Add", whereas with a PATCH it is an "Update" to the same document. To extract the event from the LDP resource generated from PATCH,
              * we need to compare the LDP resource before and after the PATCH request (i.e doing an incremental maintainance of the LDP resource) which is out of scope
-             * of the Solid Stream Aggregator (for now, and the support for this will be implemented in the future).
+             * of Heimdall (for now, and the support for this will be implemented in the future).
              */
             const latest_event_store = await turtleStringToStore(latest_event);
             const timestamp = latest_event_store.getQuads(null, DF.namedNode(bucket_strategy), null, null)[0].object.value;

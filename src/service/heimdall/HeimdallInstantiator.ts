@@ -9,14 +9,15 @@ import { hash_string_md5 } from "../../utils/Util";
 import { Credentials, aggregation_object } from "../../utils/Types";
 import { NotificationStreamProcessor } from "./NotificationStreamProcessor";
 import { N3ReasonerService } from "../reasoner/N3Reasoner";
+import { HEIMDALL_WEBSOCKET_PROTOCOL } from "../../server/websocketProtocols";
 const WebSocketClient = require('websocket').client;
 const websocketConnection = require('websocket').connection;
 const parser = new RSPQLParser();
 /**
- * Class for the Aggregator Instantiator.
- * @class AggregatorInstantiator
+ * Class for the Heimdall instantiator.
+ * @class HeimdallInstantiator
  */
-export class AggregatorInstantiator {
+export class HeimdallInstantiator {
     public query: string;
     public rules: string;
     public rsp_engine: RSPEngine;
@@ -30,17 +31,17 @@ export class AggregatorInstantiator {
     public client = new WebSocketClient();
     public connection: typeof websocketConnection;
     /**
-     * Creates an instance of AggregatorInstantiator.
+     * Creates an instance of HeimdallInstantiator.
      * @param {string} query - The RSPQL query.
-     * @param {string} rules - The rules for the query.
      * @param {number} from_timestamp - The timestamp from where the query is to be executed.
      * @param {number} to_timestamp - The timestamp to where the query is to be executed.
      * @param {*} logger - The logger object.
      * @param {string} query_type - The type of the query (either 'historical+live' or just 'live').
      * @param {any} event_emitter - The event emitter object.
-     * @memberof AggregatorInstantiator
+     * @param {string} rules - The rules for the query.
+     * @memberof HeimdallInstantiator
      */
-    public constructor(query: string, rules: string, from_timestamp: number, to_timestamp: number, logger: any, query_type: string, event_emitter: any) {
+    public constructor(query: string, from_timestamp: number, to_timestamp: number, logger: any, query_type: string, event_emitter: any, rules: string = '') {
         this.query = query;
         this.rules = rules;
         this.logger = logger;
@@ -62,7 +63,7 @@ export class AggregatorInstantiator {
      * Initialize the processing of the query.
      * @param {string} query_type - The type of the query (either 'historical+live' or just 'live').
      * @returns {Promise<boolean>} - Returns true if the processing is successful, otherwise false.
-     * @memberof AggregatorInstantiator
+     * @memberof HeimdallInstantiator
      */
     public async initializeProcessing(query_type: string): Promise<boolean> {
         const query_hashed = hash_string_md5(this.query);
@@ -87,7 +88,7 @@ export class AggregatorInstantiator {
                 return true;
             }
             else {
-                throw new Error('The query type is not currently supported by the Solid Stream Aggregator.');
+                throw new Error('The query type is not currently supported by Heimdall.');
             }
         }
         else {
@@ -97,8 +98,8 @@ export class AggregatorInstantiator {
     }
 
     /**
-     * Subscribe to the RStream of the RSP Engine to listen to the bindings, i.e the generated aggregation events and send it to the Solid Stream Aggregator's Websocket server for further processing (i.e publishing to the Solid Pod & sending to the clients).
-     * @memberof AggregatorInstantiator
+     * Subscribe to the RStream of the RSP Engine to listen to the bindings, i.e the generated aggregation events and send it to Heimdall's WebSocket server for further processing (i.e. Publishing to the Solid Pod and sending to clients).
+     * @memberof HeimdallInstantiator
      */
     public async subscribeRStream() {
         this.connect_with_server('ws://localhost:8080/').then(() => {
@@ -126,7 +127,7 @@ export class AggregatorInstantiator {
                     };
                     const aggregation_object_string = JSON.stringify(aggregation_object);
                     this.sendToServer(aggregation_object_string);
-                    this.logger.info({}, 'aggregation_event_sent_to_solid_stream_aggregator_websocket_server');
+                    this.logger.info({}, 'aggregation_event_sent_to_heimdall_websocket_server');
                 }
             })
         });
@@ -142,7 +143,7 @@ export class AggregatorInstantiator {
      * @param {number} timestamp_from - The timestamp of the start of the aggregation window.
      * @param {number} timestamp_to -  The timestamp of the end of the aggregation window.
      * @returns {string} - The aggregation event in string RDF.
-     * @memberof AggregatorInstantiator
+     * @memberof HeimdallInstantiator
      */
     generate_aggregation_event(value: string, event_timestamp: number, stream_array: string[] | undefined, timestamp_from: number, timestamp_to: number): string {
         if (stream_array === undefined) {
@@ -168,12 +169,12 @@ export class AggregatorInstantiator {
         }
     }
     /**
-     * Connect with the Websocket server of the Solid Stream Aggregator.
-     * @param {string} wssURL - The URL of the Websocket server of the Solid Stream Aggregator.
-     * @memberof AggregatorInstantiator
+     * Connect with Heimdall's WebSocket server.
+     * @param {string} wssURL - The URL of Heimdall's WebSocket server.
+     * @memberof HeimdallInstantiator
      */
     async connect_with_server(wssURL: string) {
-        this.client.connect(wssURL, 'solid-stream-aggregator-protocol');
+        this.client.connect(wssURL, HEIMDALL_WEBSOCKET_PROTOCOL);
         this.client.on('connectFailed', (error: Error) => {
             console.log('Connect Error: ' + error.toString());
         });
@@ -183,9 +184,9 @@ export class AggregatorInstantiator {
         });
     }
     /**
-     * Send a message to the Websocket server of the Solid Stream Aggregator.
+     * Send a message to Heimdall's WebSocket server.
      * @param {string} message - The message to be sent.
-     * @memberof AggregatorInstantiator
+     * @memberof HeimdallInstantiator
      */
     sendToServer(message: string) {
         if (this.connection.connected) {
@@ -201,7 +202,7 @@ export class AggregatorInstantiator {
      * Get the session credentials for the Solid Pod.
      * @param {string} stream_name - The name of the stream (i.e the LDES in LDP of the Solid Pod).
      * @returns {Credentials} - The session credentials.
-     * @memberof AggregatorInstantiator
+     * @memberof HeimdallInstantiator
      */
     get_session_credentials(stream_name: string) {
         const credentials: Credentials = CREDENTIALS;
