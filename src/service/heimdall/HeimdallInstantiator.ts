@@ -59,6 +59,7 @@ export class HeimdallInstantiator {
             metrics: { run_id: metric_writer.runId, approach: metric_writer.approach, client_id: client_id || 'unspecified', query_id: this.hash_string },
             onMetric: (event: string, metric: any) => {
                 if (event === 'rsp_insertion') metric_writer.record('event-processing.csv', event, metric);
+                else if (event === 'r2r_first_result') metric_writer.record('window-processing.csv', event, metric);
                 else if (event === 'window_query_processing') metric_writer.record('window-processing.csv', event, metric);
                 else if (event === 'out_of_order_event') metric_writer.record('out-of-order.csv', event, metric);
             },

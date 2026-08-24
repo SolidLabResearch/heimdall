@@ -13,6 +13,7 @@ Set `HEIMDALL_RESULTS_DIR` to enable instrumentation. Heimdall writes raw rows o
 | `event_retrieval` | HTTP notification handler | immediately before `fetch(object)` / after `response.text()` | Solid notification object URL | monotonic + epoch | event-processing.csv |
 | `parsing_timestamp_extraction` | NotificationStreamProcessor | immediately before `turtleStringToStore` / timestamp parsed to epoch | event ID, stream ID, query ID | monotonic + epoch | event-processing.csv |
 | `rsp_insertion` | RSP-JS | canonical RSP-JS boundary | event ID and stream ID | canonical RSP-JS monotonic | event-processing.csv |
+| `r2r_first_result` | RSP-JS | start immediately before R2R.execute; end at first emitted binding | query/window IDs | canonical RSP-JS monotonic | window-processing.csv |
 | `window_query_processing` | RSP-JS | canonical RSP-JS boundary | query/window IDs | canonical RSP-JS monotonic | window-processing.csv |
 | `out_of_order_event` | RSP-JS | one logical stream event | event ID and stream ID | RSP-JS event-time fields | out-of-order.csv |
 | `rsp_result_generated` | Heimdall RStream observer | RSP engine emits binding | query/window | metadata only | event-processing.csv |
