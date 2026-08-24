@@ -5,6 +5,7 @@ import { MetricWriter } from '../evaluation/MetricWriter';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as Util from '../utils/Util';
 
 describe('WebSocketHandler compatibility', () => {
     const fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
@@ -139,5 +140,79 @@ describe('WebSocketHandler compatibility', () => {
         expect(handler.aggregation_publisher).toBeUndefined();
         expect(handler.event_emitter.listenerCount('aggregation_event')).toBe(1);
         expect(websocketServer.listenerCount('request')).toBe(1);
+    });
+
+    it('preserves all explicit stream references without discovery or mutation', async () => {
+        const { handler } = createEvaluationHandler();
+        const query = `
+PREFIX : <https://rsp.js/>
+REGISTER RStream <output> AS
+SELECT ?s
+FROM NAMED WINDOW :x ON STREAM <http://example.test/pod/acc-x/> [RANGE 180000 STEP 250]
+FROM NAMED WINDOW :y ON STREAM <http://example.test/pod/acc-y/> [RANGE 180000 STEP 250]
+FROM NAMED WINDOW :z ON STREAM <http://example.test/pod/acc-z/> [RANGE 180000 STEP 250]
+WHERE {
+    WINDOW :x { ?s ?p ?o }
+    WINDOW :y { ?s ?p ?o }
+    WINDOW :z { ?s ?p ?o }
+}`;
+        const discovery = jest.spyOn(Util, 'find_relevant_streams');
+
+        const result = await handler.preprocess_query(query, 'client-a');
+
+        expect(result.ldes_query).toBe(query);
+        expect(result.ldes_query).toContain('http://example.test/pod/acc-x/');
+        expect(result.ldes_query).toContain('http://example.test/pod/acc-y/');
+        expect(result.ldes_query).toContain('http://example.test/pod/acc-z/');
+        expect(result.ldes_query).not.toContain('undefined');
+        expect(discovery).not.toHaveBeenCalled();
+        const metrics = fs.readFileSync(path.join((handler as any).metric_writer.resultsDir, 'initialization.csv'), 'utf8');
+        expect(metrics).not.toContain('stream_discovery');
+        discovery.mockRestore();
+    });
+
+    it('retains legacy Pod discovery and records its timing', async () => {
+        const { handler } = createEvaluationHandler();
+        const podUrl = 'http://example.test/pod/';
+        const streamUrl = `${podUrl}acc-x/`;
+        const query = `
+PREFIX : <https://rsp.js/>
+REGISTER RStream <output> AS
+SELECT (MAX(?o) AS ?maxValue)
+FROM NAMED WINDOW :x ON STREAM <${podUrl}> [RANGE 180000 STEP 250]
+WHERE {
+    WINDOW :x {
+        ?s ?p ?o
+    }
+}`;
+        const discovery = jest.spyOn(Util, 'find_relevant_streams').mockResolvedValue([streamUrl]);
+
+        const result = await handler.preprocess_query(query, 'client-a');
+
+        expect(result.ldes_query).toContain(`<${streamUrl}>`);
+        expect(result.ldes_query).not.toContain('undefined');
+        expect(discovery).toHaveBeenCalledWith(podUrl, expect.any(Array));
+        const metrics = fs.readFileSync(path.join((handler as any).metric_writer.resultsDir, 'initialization.csv'), 'utf8');
+        expect(metrics).toContain('stream_discovery');
+        discovery.mockRestore();
+    });
+
+    it('fails explicitly when legacy discovery returns no streams', async () => {
+        const { handler } = createEvaluationHandler();
+        const podUrl = 'http://example.test/pod/';
+        const query = `
+PREFIX : <https://rsp.js/>
+REGISTER RStream <output> AS
+SELECT (MAX(?o) AS ?maxValue)
+FROM NAMED WINDOW :x ON STREAM <${podUrl}> [RANGE 180000 STEP 250]
+WHERE {
+    WINDOW :x {
+        ?s ?p ?o
+    }
+}`;
+        const discovery = jest.spyOn(Util, 'find_relevant_streams').mockResolvedValue([]);
+
+        await expect(handler.preprocess_query(query)).rejects.toThrow(`No relevant LDES stream found for Pod source ${podUrl}`);
+        discovery.mockRestore();
     });
 });

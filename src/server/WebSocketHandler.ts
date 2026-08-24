@@ -302,12 +302,29 @@ export class WebSocketHandler {
      */
     public async preprocess_query(query: string, client_id?: string): Promise<{ ldes_query: string, query_hashed: string, width: number }> {
         const parsed = this.parser.parse(query);
+        if (parsed.s2r.length === 0) {
+            throw new Error('Cannot preprocess query without a STREAM reference');
+        }
+
+        // Queries with multiple STREAM references already identify their LDES
+        // containers. Preserve the complete query, including every stream URL.
+        // Type Index discovery is only applicable to the legacy single-source
+        // form where that source represents a Solid Pod.
+        if (parsed.s2r.length > 1) {
+            const width = parsed.s2r[0].width;
+            const query_hashed = hash_string_md5(query);
+            return { ldes_query: query, query_hashed, width };
+        }
+
         const pod_url = parsed.s2r[0].stream_name;
         const interest_metric = new AggregationFocusExtractor(query).extract_focus();
         const start_epoch_ms = Date.now();
         const start_monotonic_ns = process.hrtime.bigint();
         const streams = await find_relevant_streams(pod_url, interest_metric);
         const ldes_stream = streams[0];
+        if (ldes_stream === undefined) {
+            throw new Error(`No relevant LDES stream found for Pod source ${pod_url}`);
+        }
         const ldes_query = query.replace(pod_url, ldes_stream);
         const width = parsed.s2r[0].width;
         const query_hashed = hash_string_md5(ldes_query);
