@@ -38,7 +38,7 @@ export class HTTPServer {
 
         this.http_server.keepAliveTimeout = 6000;
         this.event_emitter = new EventEmitter();
-        this.query_registry = new QueryRegistry();
+        this.query_registry = new QueryRegistry(this.metric_writer);
         this.websocket_handler = new WebSocketHandler(this.websocket_server, this.event_emitter, undefined, this.logger, metric_writer);
         this.websocket_handler.handle_wss();
         this.logger.info({}, 'http_server_started');
