@@ -116,7 +116,15 @@ export class WebSocketHandler {
                         for (const [query, connections] of this.connections) {
                             if (query === query_hash) {
                                 for (const connection of connections) {
-                                    connection.send(JSON.stringify(ws_message));
+                                    const outbound = JSON.stringify(ws_message);
+                                    const start_epoch_ms = Date.now();
+                                    const start_monotonic_ns = process.hrtime.bigint();
+                                    connection.send(outbound);
+                                    this.metric_writer.timed('result-dispatch.csv', 'result_delivery_send', {
+                                        query_id: query_hash,
+                                        result_id: createHash('sha256').update(outbound).digest('hex'),
+                                        server_send_epoch_ms: start_epoch_ms,
+                                    }, start_epoch_ms, start_monotonic_ns);
                                 }
                             }
                         }
