@@ -264,8 +264,6 @@ PREFIX ex: <http://example.org/>
   odrl:rightOperand eu-gdpr:A9-2-a .`
 
 
-async function main() {
+export async function main() {
     console.log(await accessResource('http://localhost:3000/ruben/profile/card#me', 'http://localhost:3000/ruben/medical/aggregation-x/', 'http://localhost:3000/alice/profile/card#me', healthcare_patient_policy, 'http://localhost:3000/ruben/settings/policies/'));
 }
-
-main();

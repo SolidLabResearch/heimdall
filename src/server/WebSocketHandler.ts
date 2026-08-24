@@ -2,7 +2,7 @@ import { Parser } from "n3";
 import * as WebSocket from 'websocket';
 import { EventEmitter } from "events";
 import * as CONFIG from '../config/ldes_properties.json';
-import { LDESPublisher } from "../service/publishing-stream-to-pod/LDESPublisher";
+import type { LDESPublisher } from "../service/publishing-stream-to-pod/LDESPublisher";
 import { find_relevant_streams, hash_string_md5 } from "../utils/Util";
 import { QueryHandler } from "./QueryHandler";
 import { RSPQLParser } from "../service/parsers/RSPQLParser";
@@ -32,7 +32,7 @@ export class WebSocketHandler {
     private n3_parser: Parser;
     public websocket_server: WebSocket.server;
     public event_emitter: EventEmitter;
-    public aggregation_publisher: LDESPublisher;
+    public aggregation_publisher?: LDESPublisher;
     public logger: any;
     private query_registry: QueryRegistry;
     private readonly metric_writer: MetricWriter;
@@ -45,7 +45,7 @@ export class WebSocketHandler {
      * @param {*} logger - The logger object.
      * @memberof WebSocketHandler
      */
-    constructor(websocket_server: WebSocket.server, event_emitter: EventEmitter, aggregation_publisher: LDESPublisher, logger: any, metric_writer: MetricWriter = new MetricWriter()) {
+    constructor(websocket_server: WebSocket.server, event_emitter: EventEmitter, aggregation_publisher: LDESPublisher | undefined, logger: any, metric_writer: MetricWriter = new MetricWriter()) {
         this.aggregation_resource_list = [];
         this.logger = logger;
         this.websocket_server = websocket_server;
@@ -63,7 +63,9 @@ export class WebSocketHandler {
      * Handle the Websocket server.
      * It retrieves the query from the client and processes it.
      * It also sends the result to the client.
-     * It also stores the aggregation event in Heimdall's Solid Pod.
+     * Evaluation results are delivered directly to subscribed clients. Legacy
+     * Solid Pod publishing remains available as an explicit, non-evaluation
+     * method but is not registered here.
      * @memberof WebSocketHandler
      */
     public handle_wss() {
@@ -102,9 +104,7 @@ export class WebSocketHandler {
                             const { ldes_query, query_hashed, width } = await this.preprocess_query(ws_message.query, ws_message.client_id);
                             this.logger.info({ query_id: query_hashed }, `query_preprocessed`);
                             this.set_connections(query_hashed, connection);
-                            if (await this.if_authenticated(ws_message.client_id, query_hashed)) {
-                                this.process_query(ldes_query, width, query_type, this.event_emitter, ws_message.client_id);
-                            }
+                            this.process_query(ldes_query, width, query_type, this.event_emitter, ws_message.client_id);
                         }
                         else {
                             throw new Error(`The type of Query is not supported/handled. The type of query is: ${ws_message.type}`);
@@ -147,7 +147,6 @@ export class WebSocketHandler {
             });
         });
         this.client_response_publisher();
-        this.aggregation_event_publisher();
     }
 
     /**
@@ -228,12 +227,17 @@ export class WebSocketHandler {
             const event_quad: any = parser.parse(aggregation_event.aggregation_event);
             this.aggregation_resource_list.push(event_quad);
             if (this.aggregation_resource_list.length == this.aggregation_resource_list_batch_size) {
+                if (!this.aggregation_publisher) {
+                    throw new Error('Aggregation publishing is not configured for this handler.');
+                }
                 await this.aggregation_publisher.publish(this.aggregation_resource_list, aggregation_event.aggregation_window_from, aggregation_event.aggregation_window_to);
                 this.aggregation_resource_list = [];
             }
             if (this.aggregation_resource_list.length == 0) {
                 this.logger.debug(`No aggregation events to publish.`);
-                this.aggregation_publisher.update_latest_inbox(this.aggregation_publisher.lilURL);
+                if (this.aggregation_publisher) {
+                    this.aggregation_publisher.update_latest_inbox(this.aggregation_publisher.lilURL);
+                }
             }
         });
 
@@ -332,7 +336,9 @@ export class WebSocketHandler {
     }
 
     /**
-     * Check whether the configured aggregation pod credentials can authenticate.
+     * Legacy aggregation-pod authentication check. It is retained for older
+     * callers, but the 4 Hz evaluation path does not invoke it because source
+     * streams are accessed anonymously under the deployed allow-all setup.
      * @returns {Promise<boolean>} Whether the configured session can authenticate.
      */
     public async if_authenticated(client_id?: string, query_id?: string): Promise<boolean> {

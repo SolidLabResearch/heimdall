@@ -1,6 +1,5 @@
 import { createServer, ServerResponse, IncomingMessage, Server } from "http";
 import { GETHandler } from "./GETHandler";
-import { LDESPublisher } from "../service/publishing-stream-to-pod/LDESPublisher";
 import { QueryRegistry } from "../service/query-registry/QueryRegistry";
 import { WebSocketHandler } from "./WebSocketHandler";
 import * as websocket from 'websocket';
@@ -17,7 +16,6 @@ export class HTTPServer {
     public dynamic_endpoints: { [key: string]: boolean };
     public query_registry: any;
     public websocket_server: any;
-    public aggregation_publisher: any;
     public websocket_handler: any;
     public event_emitter: any;
     private readonly metric_writer: MetricWriter;
@@ -39,10 +37,9 @@ export class HTTPServer {
         });
 
         this.http_server.keepAliveTimeout = 6000;
-        this.aggregation_publisher = new LDESPublisher();
         this.event_emitter = new EventEmitter();
         this.query_registry = new QueryRegistry();
-        this.websocket_handler = new WebSocketHandler(this.websocket_server, this.event_emitter, this.aggregation_publisher, this.logger, metric_writer);
+        this.websocket_handler = new WebSocketHandler(this.websocket_server, this.event_emitter, undefined, this.logger, metric_writer);
         this.websocket_handler.handle_wss();
         this.logger.info({}, 'http_server_started');
         console.log(`HTTP Server started on port ${http_port} and the process id is ${process.pid}`);

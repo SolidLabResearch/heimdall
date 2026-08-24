@@ -7,15 +7,20 @@ import * as os from 'os';
 import * as path from 'path';
 
 describe('WebSocketHandler compatibility', () => {
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+        return { ok: true, json: async () => ({}), text: async () => '' } as Response;
+    });
+
+    afterAll(() => fetchSpy.mockRestore());
+
     const createEvaluationHandler = () => {
         const events = new EventEmitter();
         const websocketServer = new EventEmitter() as any;
-        const publisher = { publish: jest.fn(), update_latest_inbox: jest.fn(), lilURL: 'http://example.test/' } as any;
         const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'heimdall-evaluation-'));
         const handler = new WebSocketHandler(
             websocketServer,
             events,
-            publisher,
+            undefined,
             { info: jest.fn(), debug: jest.fn() },
             new MetricWriter(directory),
         );
@@ -26,14 +31,15 @@ describe('WebSocketHandler compatibility', () => {
 
     const sendEvaluationQuery = async (handler: WebSocketHandler, websocketServer: EventEmitter, message: object) => {
         const connection = new EventEmitter() as any;
+        connection.send = jest.fn();
         const request = {
             requestedProtocols: [HEIMDALL_WEBSOCKET_PROTOCOL],
             origin: 'http://example.test',
             accept: jest.fn(() => connection),
         };
-        const requestHandler = websocketServer.listeners('request')[0] as (request: any) => Promise<void>;
+        const requestHandler = websocketServer.listeners('request')[0] as any;
         await requestHandler(request);
-        const messageHandler = connection.listeners('message')[0] as (message: any) => Promise<void>;
+        const messageHandler = connection.listeners('message')[0] as any;
         await messageHandler({ type: 'utf8', utf8Data: JSON.stringify(message) });
     };
 
@@ -49,7 +55,7 @@ describe('WebSocketHandler compatibility', () => {
         expect(resolveAcceptedWebSocketProtocol(['unsupported-protocol'])).toBeNull();
     });
 
-    it('registers one aggregation publisher and records outbound result dispatches', () => {
+    it('keeps legacy aggregation publishing explicit while recording outbound result dispatches', () => {
         const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'heimdall-dispatch-'));
         const events = new EventEmitter();
         const websocketServer = new EventEmitter() as any;
@@ -68,15 +74,15 @@ describe('WebSocketHandler compatibility', () => {
         expect(metrics).toMatch(/[a-f0-9]{64}/);
     });
 
-    it('does not process an evaluation query when authentication fails', async () => {
+    it('does not invoke legacy authentication or authorization for an evaluation query', async () => {
         const { handler, websocketServer } = createEvaluationHandler();
         jest.spyOn(handler, 'preprocess_query').mockResolvedValue({
             ldes_query: 'SELECT * WHERE { ?s ?p ?o }',
             query_hashed: 'query-hash',
             width: 1000,
         });
-        jest.spyOn(handler, 'if_authenticated').mockResolvedValue(false);
         const processQuery = jest.spyOn(handler, 'process_query').mockImplementation(() => undefined);
+        const legacyAuthentication = jest.spyOn(handler, 'if_authenticated').mockResolvedValue(false);
         const legacyAuthorization = jest.spyOn(handler, 'if_authorized').mockResolvedValue(true);
 
         await sendEvaluationQuery(handler, websocketServer, {
@@ -85,19 +91,21 @@ describe('WebSocketHandler compatibility', () => {
             client_id: 'client-a',
         });
 
-        expect(processQuery).not.toHaveBeenCalled();
+        expect(processQuery).toHaveBeenCalled();
+        expect(legacyAuthentication).not.toHaveBeenCalled();
         expect(legacyAuthorization).not.toHaveBeenCalled();
+        expect(fetchSpy).not.toHaveBeenCalled();
     });
 
-    it('processes an evaluation query after authentication without invoking legacy authorization', async () => {
+    it('delivers evaluation results over WebSocket without persistence or authentication metrics', async () => {
         const { handler, websocketServer } = createEvaluationHandler();
         jest.spyOn(handler, 'preprocess_query').mockResolvedValue({
             ldes_query: 'SELECT * WHERE { ?s ?p ?o }',
             query_hashed: 'query-hash',
             width: 1000,
         });
-        jest.spyOn(handler, 'if_authenticated').mockResolvedValue(true);
         const processQuery = jest.spyOn(handler, 'process_query').mockImplementation(() => undefined);
+        const legacyAuthentication = jest.spyOn(handler, 'if_authenticated').mockResolvedValue(true);
         const legacyAuthorization = jest.spyOn(handler, 'if_authorized').mockResolvedValue(false);
 
         await sendEvaluationQuery(handler, websocketServer, {
@@ -113,6 +121,23 @@ describe('WebSocketHandler compatibility', () => {
             handler.event_emitter,
             'client-a',
         );
+        expect(legacyAuthentication).not.toHaveBeenCalled();
         expect(legacyAuthorization).not.toHaveBeenCalled();
+        expect(fetchSpy).not.toHaveBeenCalled();
+
+        const connection = (handler as any).connections.get('query-hash')[0];
+        const event = JSON.stringify({ query_hash: 'query-hash', aggregation_event: '<http://result> <http://p> <http://o> .' });
+        handler.event_emitter.emit('aggregation_event', event);
+        expect(connection.send).toHaveBeenCalledWith('<http://result> <http://p> <http://o> .');
+        expect((handler as any).aggregation_publisher).toBeUndefined();
+        const metrics = fs.readFileSync(path.join((handler as any).metric_writer.resultsDir, 'initialization.csv'), 'utf8');
+        expect(metrics).not.toContain('service_authentication');
+    });
+
+    it('does not register the legacy aggregation publisher', () => {
+        const { handler, websocketServer } = createEvaluationHandler();
+        expect(handler.aggregation_publisher).toBeUndefined();
+        expect(handler.event_emitter.listenerCount('aggregation_event')).toBe(1);
+        expect(websocketServer.listenerCount('request')).toBe(1);
     });
 });

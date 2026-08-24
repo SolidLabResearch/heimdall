@@ -8,8 +8,7 @@ Set `HEIMDALL_RESULTS_DIR` to enable instrumentation. Heimdall writes raw rows o
 | `stream_discovery` | WebSocket handler | immediately before / after `find_relevant_streams` | query ID, resolved stream ID | monotonic + epoch | initialization.csv |
 | `query_reuse_check` | QueryRegistry | immediately before / after uniqueness-isomorphism check | query ID | monotonic + epoch | initialization.csv |
 | `query_registration` | QueryRegistry | immediately before / after registry insertion | query ID | monotonic + epoch | initialization.csv |
-| `service_authentication` | WebSocket handler | immediately before / after `if_authenticated` work | query ID | monotonic + epoch | initialization.csv |
-| `service_authorization` | WebSocket handler | immediately before / after `if_authorized` work | query ID | monotonic + epoch | initialization.csv |
+| `service_authentication` | source-Pod access | only when a real source-Pod authentication operation executes | query ID | monotonic + epoch | initialization.csv; otherwise `--` |
 | `stream_subscription` | NotificationStreamProcessor | immediately before subscription request / successful establishment | query ID, stream ID | monotonic + epoch | initialization.csv |
 | `event_retrieval` | HTTP notification handler | immediately before `fetch(object)` / after `response.text()` | Solid notification object URL | monotonic + epoch | event-processing.csv |
 | `parsing_timestamp_extraction` | NotificationStreamProcessor | immediately before `turtleStringToStore` / timestamp parsed to epoch | event ID, stream ID, query ID | monotonic + epoch | event-processing.csv |
@@ -22,5 +21,7 @@ Set `HEIMDALL_RESULTS_DIR` to enable instrumentation. Heimdall writes raw rows o
 RSP-JS runs with `max_delay: 30000` only while this evaluation mode is enabled. It remains the canonical source for insertion, window-processing, and out-of-order metrics; Heimdall does not reproduce their timing or classification. `out-of-order.csv` includes `event_time_ms`, `reference_time_ms`, `lateness_ms`, `max_out_of_orderness_ms`, and `within_bound` exactly as provided by RSP-JS.
 
 Heimdall does not perform service discovery: the evaluation client already has its configured Heimdall WebSocket URL. Therefore no `service_discovery` row is emitted.
+
+The 4 Hz evaluation delivers results directly to subscribed clients over WebSocket. It does not register or invoke the legacy aggregation-event publisher, and does not persist results in a Heimdall-local `aggregation_pod`. The deployed allow-all source-stream path performs no authentication operation, so Heimdall emits no fabricated `service_authentication` duration; downstream statistics must render that value as `--`. If a future evaluation executes real source-Pod authentication, only that operation may produce the metric.
 
 Required/optional environment variables are `HEIMDALL_RESULTS_DIR` (enables output), `HEIMDALL_RUN_ID`, `HEIMDALL_APPROACH` (default `heimdall`), `HEIMDALL_CLIENT_ID`, and `HEIMDALL_RESOURCE_INTERVAL_MS` (default `500`). Evaluation outputs are `heimdall.log`, `resource.csv`, `initialization.csv`, `event-processing.csv`, `window-processing.csv`, `result-dispatch.csv`, `out-of-order.csv`, and `run-metadata.json` under the results directory.

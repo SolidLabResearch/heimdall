@@ -22,7 +22,7 @@ We employ [Type Indexes](https://solid.github.io/type-indexes/) to store the loc
 npm run start-solid-server
 ``` 
 The command will start a Solid Server on the port 3000 with a Solid Pod named `aggregation_pod` which can be accessed at `http://localhost:3000/aggregation_pod/`. The aggregation results are stored in Heimdall's Solid Pod in the form of an LDES stream using the [LDES in LDP](https://woutslabbinck.github.io/LDESinLDP/) specification.
-- Heimdall requires its own aggregation Solid Pod environment on `localhost:3000`; it is not the queried data pod. For the 4 Hz evaluation start components in this order: (1) Heimdall aggregation Pod, (2) Heimdall service, (3) evaluation client, (4) replayer.
+- The 4 Hz evaluation delivers results directly to clients over WebSocket and does not persist results in a Heimdall-local aggregation Pod. Heimdall can start on port 8080 without a Community Solid Server on `localhost:3000`.
 - For this evaluation branch, the separate evaluation RSP-JS checkout must be explicitly available at `../RSP-JS` (relative to this checkout). The dependency is intentionally declared as `file:../RSP-JS`; do not substitute another checkout. Record its checked-out commit in the run metadata.
 - Start Heimdall with the command
 ```bash
@@ -30,7 +30,7 @@ HEIMDALL_RESULTS_DIR="$PWD/results/run-001/heimdall" HEIMDALL_RUN_ID=run-001 HEI
 ```
 The command starts Heimdall on port 8080, with raw observations in the provided result directory. `HEIMDALL_RESOURCE_INTERVAL_MS` optionally overrides the default 500 ms resource sampling interval. `GET /health` returns 200 after the HTTP/WebSocket service is listening; `/clearQueryRegistry` remains available.
 
-The initialization data contains actual `stream_discovery`, `query_reuse_check`, `service_authentication`, `service_authorization`, `query_registration`, `stream_subscription`, and `websocket_message_received` observations. Heimdall does not perform service discovery, so it deliberately emits no `service_discovery` timer. RSP insertion, window processing, and out-of-order observations come from the evaluation RSP-JS metric interface rather than inferred Heimdall timings.
+The initialization data contains raw `stream_discovery`, `query_reuse_check`, `query_registration`, `stream_subscription`, and `websocket_message_received` observations. Source-Pod `service_authentication` is recorded only when a real authentication operation executes; the deployed allow-all evaluation path performs none and represents it as `--`. Heimdall does not perform service discovery, so it deliberately emits no `service_discovery` timer. RSP insertion, window processing, and out-of-order observations come from the evaluation RSP-JS metric interface rather than inferred Heimdall timings.
 
 - The protocol to communicate with Heimdall is by sending a RSP-QL query to the service.
 ```ts
