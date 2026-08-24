@@ -103,9 +103,7 @@ export class WebSocketHandler {
                             this.logger.info({ query_id: query_hashed }, `query_preprocessed`);
                             this.set_connections(query_hashed, connection);
                             if (await this.if_authenticated(ws_message.client_id, query_hashed)) {
-                                if (await this.if_authorized(ws_message.client_id, query_hashed)) {
-                                    this.process_query(ldes_query, width, query_type, this.event_emitter, ws_message.client_id);
-                                }
+                                this.process_query(ldes_query, width, query_type, this.event_emitter, ws_message.client_id);
                             }
                         }
                         else {
