@@ -1,5 +1,9 @@
 import { Logger } from "tslog";
 import { QueryRegistry } from "./QueryRegistry";
+import { MetricWriter } from '../../evaluation/MetricWriter';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 describe('QueryRegistry', () => {
     let query_registry: QueryRegistry;
@@ -154,5 +158,14 @@ describe('QueryRegistry', () => {
         `;
         await query_registry.add_query_in_registry(query_one, logger);        
         expect(query_registry.checkUniqueQuery(query_one, logger)).toBe(true);
+    });
+
+    it('records the actual registration and reuse-check operations', async () => {
+        const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'heimdall-registry-'));
+        const registry = new QueryRegistry(new MetricWriter(directory, 'run-registry', 'heimdall'));
+        await registry.add_query_in_registry(rspql_query, logger);
+        const metrics = fs.readFileSync(path.join(directory, 'initialization.csv'), 'utf8');
+        expect(metrics).toContain('query_registration');
+        expect(metrics).toContain('query_reuse_check');
     });
 });

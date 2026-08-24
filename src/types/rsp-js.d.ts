@@ -3,7 +3,7 @@ declare module 'rsp-js' {
     import { EventEmitter } from 'events';
 
     export type RDFStream = {
-        add: (...args: [unknown, number]) => void;
+        add: (...args: [unknown, number, string?]) => void;
     };
 
     /**
@@ -13,7 +13,7 @@ declare module 'rsp-js' {
         /**
          *
          */
-        constructor(...args: [string]);
+        constructor(...args: [string, any?]);
         /**
          *
          */

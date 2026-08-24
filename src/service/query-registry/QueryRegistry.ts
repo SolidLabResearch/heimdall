@@ -5,6 +5,7 @@ import { is_equivalent } from "rspql-query-equivalence";
 import { WriteLockArray } from "../../utils/query-registry/Util";
 import { hash_string_md5 } from "../../utils/Util";
 import { HEIMDALL_WEBSOCKET_PROTOCOL } from "../../server/websocketProtocols";
+import { MetricWriter } from '../../evaluation/MetricWriter';
 const websocketConnection = require('websocket').connection;
 const WebSocketClient = require('websocket').client;
 /**
@@ -22,12 +23,14 @@ export class QueryRegistry {
     query_hash_map: Map<string, string>;
     static connection: typeof websocketConnection;
     public static client: any = new WebSocketClient();
+    private readonly metric_writer: MetricWriter;
 
     /**
      * Creates an instance of QueryRegistry.
      * @memberof QueryRegistry
      */
-    constructor() {
+    constructor(metric_writer: MetricWriter = new MetricWriter()) {
+        this.metric_writer = metric_writer;
         /**
          * Map of registered queries which are the queries without any analysis by the QueryRegistry but only registered.  
          */
@@ -55,13 +58,13 @@ export class QueryRegistry {
      * @returns {Promise<boolean>} - Returns true if the query is unique, otherwise false.
      * @memberof QueryRegistry
      */
-    async register_query(rspql_query: string, query_registry: QueryRegistry, from_timestamp: number, to_timestamp: number, logger: any, query_type: any, event_emitter: any): Promise<boolean> {
+    async register_query(rspql_query: string, query_registry: QueryRegistry, from_timestamp: number, to_timestamp: number, logger: any, query_type: any, event_emitter: any, client_id?: string): Promise<boolean> {
         if (await query_registry.add_query_in_registry(rspql_query, logger)) {
             /*
             The query is not already executing or computed ; it is unique. So, just compute it and send it via the websocket.
             */
             logger.info({}, 'query_is_unique');
-            new HeimdallInstantiator(rspql_query, from_timestamp, to_timestamp, logger, query_type, event_emitter);
+            new HeimdallInstantiator(rspql_query, from_timestamp, to_timestamp, logger, query_type, event_emitter, '', this.metric_writer, client_id);
             return true;
         }
         else {
@@ -83,8 +86,16 @@ export class QueryRegistry {
      * @memberof QueryRegistry
      */
     async add_query_in_registry(rspql_query: string, logger: any): Promise<boolean> {
+        const query_id = hash_string_md5(rspql_query);
+        const registration_start_epoch_ms = Date.now();
+        const registration_start_monotonic_ns = process.hrtime.bigint();
         await this.registered_queries.addItem(rspql_query);
-        if (this.checkUniqueQuery(rspql_query, logger)) {
+        this.metric_writer.timed('initialization.csv', 'query_registration', { query_id }, registration_start_epoch_ms, registration_start_monotonic_ns);
+        const reuse_start_epoch_ms = Date.now();
+        const reuse_start_monotonic_ns = process.hrtime.bigint();
+        const duplicate = this.checkUniqueQuery(rspql_query, logger);
+        this.metric_writer.timed('initialization.csv', 'query_reuse_check', { query_id }, reuse_start_epoch_ms, reuse_start_monotonic_ns);
+        if (duplicate) {
             /*
             The query you have registered is already executing.
             */

@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 
 export type RDFStream = {
-    add: jest.Mock;
+        add: jest.Mock;
 };
 
 /**
@@ -14,8 +14,11 @@ export class RSPEngine {
      * Construct the stub engine.
      * @param {string} query - The registered query string.
      */
-    constructor(query: string) {
+    public readonly metrics = new EventEmitter();
+
+    constructor(query: string, options?: any) {
         void query;
+        void options;
     }
 
     /**

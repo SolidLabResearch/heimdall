@@ -16,6 +16,11 @@ export class GETHandler {
      */
     public static async handle(req: IncomingMessage, res: ServerResponse, query_registry: QueryRegistry) {
         if (req.url !== undefined) {
+            if (req.url === '/health') {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.write(JSON.stringify({ status: 'ok' }));
+                return;
+            }
             /**
              * The following API path of Heimdall is used to clear all registered queries from the query registry.
              */

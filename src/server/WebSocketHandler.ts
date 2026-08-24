@@ -16,6 +16,8 @@ import {
     LEGACY_WEBSOCKET_PROTOCOL,
     resolveAcceptedWebSocketProtocol,
 } from "./websocketProtocols";
+import { MetricWriter } from '../evaluation/MetricWriter';
+import { createHash } from 'crypto';
 
 /**
  * Class for handling the Websocket server.
@@ -33,6 +35,8 @@ export class WebSocketHandler {
     public aggregation_publisher: LDESPublisher;
     public logger: any;
     private query_registry: QueryRegistry;
+    private readonly metric_writer: MetricWriter;
+    private aggregationPublisherRegistered = false;
     /**
      * Creates an instance of WebSocketHandler.
      * @param {WebSocket.server} websocket_server - The Websocket server.
@@ -41,7 +45,7 @@ export class WebSocketHandler {
      * @param {*} logger - The logger object.
      * @memberof WebSocketHandler
      */
-    constructor(websocket_server: WebSocket.server, event_emitter: EventEmitter, aggregation_publisher: LDESPublisher, logger: any) {
+    constructor(websocket_server: WebSocket.server, event_emitter: EventEmitter, aggregation_publisher: LDESPublisher, logger: any, metric_writer: MetricWriter = new MetricWriter()) {
         this.aggregation_resource_list = [];
         this.logger = logger;
         this.websocket_server = websocket_server;
@@ -49,7 +53,8 @@ export class WebSocketHandler {
         this.aggregation_publisher = aggregation_publisher;
         this.connections = new Map<string, WebSocket[]>();
         this.parser = new RSPQLParser();
-        this.query_registry = new QueryRegistry();
+        this.metric_writer = metric_writer;
+        this.query_registry = new QueryRegistry(metric_writer);
         this.n3_parser = new Parser({ format: 'N-Triples' });
         this.logger.info({}, 'websocket_handler_initialized');
     }
@@ -81,16 +86,25 @@ export class WebSocketHandler {
                     const message_utf8 = message.utf8Data;
                     const ws_message = JSON.parse(message_utf8);
                     if (Object.keys(ws_message).includes('query')) {
+                        const message_id = ws_message.message_id || ws_message.query_id || hash_string_md5(message_utf8);
+                        const received_epoch_ms = Date.now();
+                        this.metric_writer.record('initialization.csv', 'websocket_message_received', {
+                            client_id: ws_message.client_id,
+                            message_id,
+                            start_epoch_ms: received_epoch_ms,
+                            end_epoch_ms: received_epoch_ms,
+                            duration_ms: 0,
+                        });
                         this.logger.info({ query: ws_message.query }, `new_query_received_from_client_ws`);
                         const query_type = ws_message.type;
                         if (query_type === 'historical+live' || query_type === 'live') {
                             this.logger.info({}, `query_preprocessing_started`);
-                            const { ldes_query, query_hashed, width } = await this.preprocess_query(ws_message.query);
+                            const { ldes_query, query_hashed, width } = await this.preprocess_query(ws_message.query, ws_message.client_id);
                             this.logger.info({ query_id: query_hashed }, `query_preprocessed`);
                             this.set_connections(query_hashed, connection);
-                            if (await this.if_authenticated()) {
-                                if (await this.if_authorized()) {
-                                    this.process_query(ldes_query, width, query_type, this.event_emitter);
+                            if (await this.if_authenticated(ws_message.client_id, query_hashed)) {
+                                if (await this.if_authorized(ws_message.client_id, query_hashed)) {
+                                    this.process_query(ldes_query, width, query_type, this.event_emitter, ws_message.client_id);
                                 }
                             }
                         }
@@ -149,7 +163,15 @@ export class WebSocketHandler {
             const connections = this.connections.get(query_id);
             if (connections !== undefined) {
                 for (const connection of connections) {
-                    connection.send(event.aggregation_event);
+                    const start_epoch_ms = Date.now();
+                    const start_monotonic_ns = process.hrtime.bigint();
+                    const outbound = event.aggregation_event;
+                    connection.send(outbound);
+                    this.metric_writer.timed('result-dispatch.csv', 'result_delivery_send', {
+                        query_id,
+                        result_id: createHash('sha256').update(outbound).digest('hex'),
+                        server_send_epoch_ms: start_epoch_ms,
+                    }, start_epoch_ms, start_monotonic_ns);
                 }
             }
         });
@@ -200,6 +222,8 @@ export class WebSocketHandler {
      * @memberof WebSocketHandler
      */
     public aggregation_event_publisher() {
+        if (this.aggregationPublisherRegistered) return;
+        this.aggregationPublisherRegistered = true;
         this.event_emitter.on('aggregation_event', async (object: string) => {
             const parser = new Parser({ format: 'N-Triples' });
             const aggregation_event = JSON.parse(object)
@@ -240,7 +264,15 @@ export class WebSocketHandler {
         const websocket_clients = this.connections.get(query_id);
         if (websocket_clients !== undefined) {
             for (const client of websocket_clients) {
-                client.send(JSON.stringify(result));
+                const outbound = JSON.stringify(result);
+                const start_epoch_ms = Date.now();
+                const start_monotonic_ns = process.hrtime.bigint();
+                client.send(outbound);
+                this.metric_writer.timed('result-dispatch.csv', 'result_delivery_send', {
+                    query_id,
+                    result_id: createHash('sha256').update(outbound).digest('hex'),
+                    server_send_epoch_ms: start_epoch_ms,
+                }, start_epoch_ms, start_monotonic_ns);
             }
         }
         else {
@@ -256,8 +288,8 @@ export class WebSocketHandler {
      * @param {EventEmitter} event_emitter - The event emitter object.
      * @memberof WebSocketHandler
      */
-    public process_query(query: string, width: number, query_type: string, event_emitter: EventEmitter) {
-        QueryHandler.handle_ws_query(query, width, this.query_registry, this.logger, this.connections, query_type, event_emitter);
+    public process_query(query: string, width: number, query_type: string, event_emitter: EventEmitter, client_id?: string) {
+        QueryHandler.handle_ws_query(query, width, this.query_registry, this.logger, this.connections, query_type, event_emitter, client_id);
     }
 
     /**
@@ -266,15 +298,18 @@ export class WebSocketHandler {
      * @returns {Promise<{ ldes_query: string, query_hashed: string, width: number }>} - The preprocessed query (which now contains the LDES stream instead of just the pod), the hashed query and the width of the window.
      * @memberof WebSocketHandler
      */
-    public async preprocess_query(query: string): Promise<{ ldes_query: string, query_hashed: string, width: number }> {
+    public async preprocess_query(query: string, client_id?: string): Promise<{ ldes_query: string, query_hashed: string, width: number }> {
         const parsed = this.parser.parse(query);
         const pod_url = parsed.s2r[0].stream_name;
         const interest_metric = new AggregationFocusExtractor(query).extract_focus();
+        const start_epoch_ms = Date.now();
+        const start_monotonic_ns = process.hrtime.bigint();
         const streams = await find_relevant_streams(pod_url, interest_metric);
         const ldes_stream = streams[0];
         const ldes_query = query.replace(pod_url, ldes_stream);
         const width = parsed.s2r[0].width;
         const query_hashed = hash_string_md5(ldes_query);
+        this.metric_writer.timed('initialization.csv', 'stream_discovery', { client_id, query_id: query_hashed, stream_id: ldes_stream }, start_epoch_ms, start_monotonic_ns);
         return { ldes_query, query_hashed, width };
     }
     /**
@@ -302,26 +337,27 @@ export class WebSocketHandler {
      * Check whether the configured aggregation pod credentials can authenticate.
      * @returns {Promise<boolean>} Whether the configured session can authenticate.
      */
-    public async if_authenticated(): Promise<boolean> {
+    public async if_authenticated(client_id?: string, query_id?: string): Promise<boolean> {
+        const start_epoch_ms = Date.now();
+        const start_monotonic_ns = process.hrtime.bigint();
         const session = await getAuthenticatedSession({
             webId: AGG_CONFIG.aggregation_pod_web_id,
             password: AGG_CONFIG.aggregation_pod_password,
             email: AGG_CONFIG.aggregation_pod_email,
         })
 
-        if (session) {
-            return true;
-        }
-        else {
-            return false;
-        }
+        const authenticated = Boolean(session);
+        this.metric_writer.timed('initialization.csv', 'service_authentication', { client_id, query_id }, start_epoch_ms, start_monotonic_ns);
+        return authenticated;
     }
 
     /**
      * Check whether the static healthcare policy authorizes the request.
      * @returns {Promise<boolean>} Whether the request is authorized.
      */
-    public async if_authorized(): Promise<boolean> {
+    public async if_authorized(client_id?: string, query_id?: string): Promise<boolean> {
+        const start_epoch_ms = Date.now();
+        const start_monotonic_ns = process.hrtime.bigint();
         const healthcare_patient_policy =
             `PREFIX dcterms: <http://purl.org/dc/terms/>
 PREFIX eu-gdpr: <https://w3id.org/dpv/legal/eu/gdpr#>
@@ -354,7 +390,9 @@ PREFIX ex: <http://example.org/>
   odrl:leftOperand oac:LegalBasis ;
   odrl:operator odrl:eq ;
   odrl:rightOperand eu-gdpr:A9-2-a .`;
-        return accessResource('http://localhost:3000/ruben/profile/card#me', 'http://localhost:3000/ruben/medical/aggregation-x/', 'http://localhost:3000/alice/profile/card#me', healthcare_patient_policy, 'http://localhost:3000/ruben/settings/policies/')
+        const authorized = await accessResource('http://localhost:3000/ruben/profile/card#me', 'http://localhost:3000/ruben/medical/aggregation-x/', 'http://localhost:3000/alice/profile/card#me', healthcare_patient_policy, 'http://localhost:3000/ruben/settings/policies/');
+        this.metric_writer.timed('initialization.csv', 'service_authorization', { client_id, query_id }, start_epoch_ms, start_monotonic_ns);
+        return authorized;
         // const parsed = this.parser.parse(query);
         // const pod_url = parsed.s2r[0].stream_name;
         // console.log(`Checking if the user is authorized to access the stream: ${pod_url}`);

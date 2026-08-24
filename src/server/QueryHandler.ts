@@ -39,12 +39,12 @@ export class QueryHandler {
      * @param {any} event_emitter - The event emitter object.
      * @memberof QueryHandler
      */
-    public static async handle_ws_query(query: string, width: number, query_registry: QueryRegistry, logger: any, websocket_connections: any, query_type: string, event_emitter: any) {
+    public static async handle_ws_query(query: string, width: number, query_registry: QueryRegistry, logger: any, websocket_connections: any, query_type: string, event_emitter: any, client_id?: string) {
         const aggregation_dispatcher = new AggregationDispatcher(query);
         const to_timestamp = new Date().getTime(); // current time
         const from_timestamp = new Date(to_timestamp - (width)).getTime(); // latest seconds ago
         const query_hashed = hash_string_md5(query);
-        const is_query_unique = query_registry.register_query(query, query_registry, from_timestamp, to_timestamp, logger, query_type, event_emitter);
+        const is_query_unique = query_registry.register_query(query, query_registry, from_timestamp, to_timestamp, logger, query_type, event_emitter, client_id);
         if (await is_query_unique) {
             console.log(`The query is unique.`);
             logger.info({ query_id: query_hashed }, `unique_query_registered`);

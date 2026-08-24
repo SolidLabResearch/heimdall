@@ -1,0 +1,26 @@
+# Heimdall 4 Hz raw metrics
+
+Set `HEIMDALL_RESULTS_DIR` to enable instrumentation. Heimdall writes raw rows only; analysis computes all summary statistics. A results directory is single-run: Heimdall refuses to overwrite an existing metric file.
+
+| Operation | Component | Start / end boundary | Correlation ID | Clock | Output |
+| --- | --- | --- | --- | --- | --- |
+| `websocket_message_received` | WebSocket handler | Receive and parse query message / same instant | query ID and client message ID | epoch | initialization.csv |
+| `stream_discovery` | WebSocket handler | immediately before / after `find_relevant_streams` | query ID, resolved stream ID | monotonic + epoch | initialization.csv |
+| `query_reuse_check` | QueryRegistry | immediately before / after uniqueness-isomorphism check | query ID | monotonic + epoch | initialization.csv |
+| `query_registration` | QueryRegistry | immediately before / after registry insertion | query ID | monotonic + epoch | initialization.csv |
+| `service_authentication` | WebSocket handler | immediately before / after `if_authenticated` work | query ID | monotonic + epoch | initialization.csv |
+| `service_authorization` | WebSocket handler | immediately before / after `if_authorized` work | query ID | monotonic + epoch | initialization.csv |
+| `stream_subscription` | NotificationStreamProcessor | immediately before subscription request / successful establishment | query ID, stream ID | monotonic + epoch | initialization.csv |
+| `event_retrieval` | HTTP notification handler | immediately before `fetch(object)` / after `response.text()` | Solid notification object URL | monotonic + epoch | event-processing.csv |
+| `parsing_timestamp_extraction` | NotificationStreamProcessor | immediately before `turtleStringToStore` / timestamp parsed to epoch | event ID, stream ID, query ID | monotonic + epoch | event-processing.csv |
+| `rsp_insertion` | RSP-JS | canonical RSP-JS boundary | event ID and stream ID | canonical RSP-JS monotonic | event-processing.csv |
+| `window_query_processing` | RSP-JS | canonical RSP-JS boundary | query/window IDs | canonical RSP-JS monotonic | window-processing.csv |
+| `out_of_order_event` | RSP-JS | one logical stream event | event ID and stream ID | RSP-JS event-time fields | out-of-order.csv |
+| `rsp_result_generated` | Heimdall RStream observer | RSP engine emits binding | query/window | metadata only | event-processing.csv |
+| `result_delivery_send` | WebSocket handler | immediately before `connection.send` / return from send | SHA-256 of exact outbound payload | monotonic + server epoch | result-dispatch.csv |
+
+RSP-JS runs with `max_delay: 30000` only while this evaluation mode is enabled. It remains the canonical source for insertion, window-processing, and out-of-order metrics; Heimdall does not reproduce their timing or classification. `out-of-order.csv` includes `event_time_ms`, `reference_time_ms`, `lateness_ms`, `max_out_of_orderness_ms`, and `within_bound` exactly as provided by RSP-JS.
+
+Heimdall does not perform service discovery: the evaluation client already has its configured Heimdall WebSocket URL. Therefore no `service_discovery` row is emitted.
+
+Required/optional environment variables are `HEIMDALL_RESULTS_DIR` (enables output), `HEIMDALL_RUN_ID`, `HEIMDALL_APPROACH` (default `heimdall`), `HEIMDALL_CLIENT_ID`, and `HEIMDALL_RESOURCE_INTERVAL_MS` (default `500`). Evaluation outputs are `heimdall.log`, `resource.csv`, `initialization.csv`, `event-processing.csv`, `window-processing.csv`, `result-dispatch.csv`, `out-of-order.csv`, and `run-metadata.json` under the results directory.

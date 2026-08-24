@@ -10,6 +10,7 @@ import { Credentials, aggregation_object } from "../../utils/Types";
 import { NotificationStreamProcessor } from "./NotificationStreamProcessor";
 import { N3ReasonerService } from "../reasoner/N3Reasoner";
 import { HEIMDALL_WEBSOCKET_PROTOCOL } from "../../server/websocketProtocols";
+import { MetricWriter } from '../../evaluation/MetricWriter';
 const WebSocketClient = require('websocket').client;
 const websocketConnection = require('websocket').connection;
 const parser = new RSPQLParser();
@@ -30,6 +31,8 @@ export class HeimdallInstantiator {
     public to_date: Date;
     public client = new WebSocketClient();
     public connection: typeof websocketConnection;
+    private readonly metric_writer: MetricWriter;
+    private readonly client_id?: string;
     /**
      * Creates an instance of HeimdallInstantiator.
      * @param {string} query - The RSPQL query.
@@ -41,13 +44,25 @@ export class HeimdallInstantiator {
      * @param {string} rules - The rules for the query.
      * @memberof HeimdallInstantiator
      */
-    public constructor(query: string, from_timestamp: number, to_timestamp: number, logger: any, query_type: string, event_emitter: any, rules: string = '') {
+    public constructor(query: string, from_timestamp: number, to_timestamp: number, logger: any, query_type: string, event_emitter: any, rules: string = '', metric_writer: MetricWriter = new MetricWriter(), client_id?: string) {
         this.query = query;
         this.rules = rules;
         this.logger = logger;
         this.event_emitter = event_emitter;
+        this.metric_writer = metric_writer;
+        this.client_id = client_id;
         this.hash_string = hash_string_md5(query);
-        this.rsp_engine = new RSPEngine(query);
+        this.rsp_engine = new RSPEngine(query, {
+            // This delay is evaluation configuration for the 4 Hz experiment only;
+            // RSP-JS retains ownership of classification and window semantics.
+            max_delay: this.metric_writer.enabled ? 30000 : undefined,
+            metrics: { run_id: metric_writer.runId, approach: metric_writer.approach, client_id: client_id || 'unspecified', query_id: this.hash_string },
+            onMetric: (event: string, metric: any) => {
+                if (event === 'rsp_insertion') metric_writer.record('event-processing.csv', event, metric);
+                else if (event === 'window_query_processing') metric_writer.record('window-processing.csv', event, metric);
+                else if (event === 'out_of_order_event') metric_writer.record('out-of-order.csv', event, metric);
+            },
+        });
         this.from_date = new Date(from_timestamp);
         this.to_date = new Date(to_timestamp);
         this.stream_array = [];
@@ -82,7 +97,7 @@ export class HeimdallInstantiator {
                 console.log(`The query type is live.`);
                 for (const stream of this.stream_array) {
                     this.logger.info({ query_hashed }, `stream_credentials_retrieved`);
-                    new NotificationStreamProcessor(stream, this.logger, this.rsp_engine, this.event_emitter);
+                    new NotificationStreamProcessor(stream, this.logger, this.rsp_engine, this.event_emitter, this.metric_writer, this.client_id, this.hash_string);
                 }
                 this.subscribeRStream();
                 return true;
@@ -109,6 +124,11 @@ export class HeimdallInstantiator {
         this.client.on('connect', (connection: typeof websocketConnection) => {
             console.log(`The connection with the server has been established. ${connection.connected}`);
             this.rsp_emitter.on('RStream', async (object: BindingsWithTimestamp) => {
+                this.metric_writer.record('event-processing.csv', 'rsp_result_generated', {
+                    query_id: this.hash_string,
+                    window_from_ms: object.timestamp_from,
+                    window_to_ms: object.timestamp_to,
+                });
                 const window_timestamp_from = object.timestamp_from;
                 const window_timestamp_to = object.timestamp_to;
                 const iterable = object.bindings.values();

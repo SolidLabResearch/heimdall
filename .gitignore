@@ -38,6 +38,13 @@ build/Release
 # Dependency directories
 node_modules/
 jspm_packages/
+resource.csv
+initialization.csv
+event-processing.csv
+result-dispatch.csv
+run-metadata.json
+heimdall-*.log
+heimdall_resource_used-*.csv
 
 # TypeScript v1 declaration files
 typings/

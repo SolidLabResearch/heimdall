@@ -4,6 +4,7 @@ import { LDESPublisher } from "../service/publishing-stream-to-pod/LDESPublisher
 import { QueryRegistry } from "../service/query-registry/QueryRegistry";
 import { WebSocketHandler } from "./WebSocketHandler";
 import * as websocket from 'websocket';
+import { MetricWriter } from '../evaluation/MetricWriter';
 const EventEmitter = require('events');
 /**
  * Class for the HTTP Server.
@@ -19,6 +20,7 @@ export class HTTPServer {
     public aggregation_publisher: any;
     public websocket_handler: any;
     public event_emitter: any;
+    private readonly metric_writer: MetricWriter;
     /**
      * Creates an instance of HTTPServer.
      * @param {number} http_port - The port on which the HTTP server is to be started.
@@ -26,7 +28,8 @@ export class HTTPServer {
      * @param {*} logger - The logger object.
      * @memberof HTTPServer
      */
-    constructor(http_port: number, solid_server_url: string, logger: any) {
+    constructor(http_port: number, solid_server_url: string, logger: any, metric_writer: MetricWriter = new MetricWriter()) {
+        this.metric_writer = metric_writer;
         this.solid_server_url = solid_server_url;
         this.dynamic_endpoints = {};
         this.http_server = createServer(this.request_handler.bind(this)).listen(http_port);
@@ -39,9 +42,8 @@ export class HTTPServer {
         this.aggregation_publisher = new LDESPublisher();
         this.event_emitter = new EventEmitter();
         this.query_registry = new QueryRegistry();
-        this.websocket_handler = new WebSocketHandler(this.websocket_server, this.event_emitter, this.aggregation_publisher, this.logger);
+        this.websocket_handler = new WebSocketHandler(this.websocket_server, this.event_emitter, this.aggregation_publisher, this.logger, metric_writer);
         this.websocket_handler.handle_wss();
-        this.websocket_handler.aggregation_event_publisher();
         this.logger.info({}, 'http_server_started');
         console.log(`HTTP Server started on port ${http_port} and the process id is ${process.pid}`);
     }
@@ -77,6 +79,8 @@ export class HTTPServer {
                         const inbox_where_event_is_added = webhook_notification_data.target;
                         const ldes_stream_where_event_is_added = inbox_where_event_is_added.replace(/\/\d+\/$/, '/');
                         const added_event_location = webhook_notification_data.object;
+                        const start_epoch_ms = Date.now();
+                        const start_monotonic_ns = process.hrtime.bigint();
                         const latest_event_response = await fetch(added_event_location, {
                             method: 'GET',
                             headers: {
@@ -84,8 +88,16 @@ export class HTTPServer {
                             }
                         });
                         const latest_event = await latest_event_response.text();
+                        this.metric_writer.timed('event-processing.csv', 'event_retrieval', {
+                            event_id: added_event_location,
+                            stream_id: ldes_stream_where_event_is_added,
+                        }, start_epoch_ms, start_monotonic_ns);
                         console.log(`The latest event is ${latest_event}`);
-                        this.event_emitter.emit(`${ldes_stream_where_event_is_added}`, latest_event);
+                        this.event_emitter.emit(`${ldes_stream_where_event_is_added}`, {
+                            event_id: added_event_location,
+                            stream_id: ldes_stream_where_event_is_added,
+                            latest_event,
+                        });
                         this.logger.info({}, 'webhook_notification_processed_and_emitted');
                     }
                 });
@@ -110,8 +122,10 @@ export class HTTPServer {
      * Close the HTTP server.
      * @memberof HTTPServer
      */
-    public close() {
-        this.http_server.close();
+    public close(): Promise<void> {
+        return new Promise(resolve => this.http_server.close(() => {
         this.logger.info({}, 'http_server_closed');
+            resolve();
+        }));
     }
 }

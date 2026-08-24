@@ -4,6 +4,7 @@ import { LDESinLDP, LDPCommunication } from "@treecg/versionawareldesinldp";
 import { RDFStream, RSPEngine } from "rsp-js";
 import { TREE } from "@treecg/versionawareldesinldp";
 import { create_subscription, extract_ldp_inbox, extract_subscription_server } from "../../utils/notifications/Util";
+import { MetricWriter } from '../../evaluation/MetricWriter';
 const DF = new DataFactory();
 
 /**
@@ -16,6 +17,9 @@ export class NotificationStreamProcessor {
     public logger: any;
     public stream_name: RDFStream | undefined;
     public event_emitter: any;
+    private readonly metric_writer: MetricWriter;
+    private readonly client_id?: string;
+    private readonly query_id?: string;
 
     /**
      * Creates an instance of NotificationStreamProcessor.
@@ -25,12 +29,15 @@ export class NotificationStreamProcessor {
      * @param {*} event_emitter - The event emitter object.
      * @memberof NotificationStreamProcessor
      */
-    constructor(ldes_stream: string, logger: any, rsp_engine: RSPEngine, event_emitter: any) {
+    constructor(ldes_stream: string, logger: any, rsp_engine: RSPEngine, event_emitter: any, metric_writer: MetricWriter = new MetricWriter(), client_id?: string, query_id?: string) {
         this.ldes_stream = ldes_stream;
         this.logger = logger;
         this.rsp_engine = rsp_engine;
         this.stream_name = rsp_engine.getStream(ldes_stream);
         this.event_emitter = event_emitter;
+        this.metric_writer = metric_writer;
+        this.client_id = client_id;
+        this.query_id = query_id;
         this.subscribe_webhook_events();
         this.retrieve_notification_from_server(this.event_emitter);
         this.logger.info({}, 'notification_stream_processor_started');
@@ -50,8 +57,11 @@ export class NotificationStreamProcessor {
                 if (subscription_server !== undefined) {
                     console.log(`The inbox is ${inbox}`);
                     const server = subscription_server.location;
+                    const start_epoch_ms = Date.now();
+                    const start_monotonic_ns = process.hrtime.bigint();
                     const response_subscription = await create_subscription(server, inbox);
                     if (response_subscription) {
+                        this.metric_writer.timed('initialization.csv', 'stream_subscription', { client_id: this.client_id, query_id: this.query_id, stream_id: this.ldes_stream }, start_epoch_ms, start_monotonic_ns);
                         this.logger.info({}, `subscription_to_ldes_stream_was_successful`);
                         console.log(`Subscription to the LDES Stream ${this.ldes_stream}'s inbox ${inbox} was successful`);
                     }
@@ -86,7 +96,10 @@ export class NotificationStreamProcessor {
         const ldes = new LDESinLDP(this.ldes_stream, new LDPCommunication());
         const metadata = await ldes.readMetadata();
         const bucket_strategy = metadata.getQuads(this.ldes_stream + "#BucketizeStrategy", TREE.path, null, null)[0].object.value;
-        event_emitter.on(`${this.ldes_stream}`, async (latest_event: string) => {
+        event_emitter.on(`${this.ldes_stream}`, async (notification: string | { event_id?: string, stream_id?: string, latest_event: string }) => {
+            const latest_event = typeof notification === 'string' ? notification : notification.latest_event;
+            const event_id = typeof notification === 'string' ? undefined : notification.event_id;
+            const stream_id = typeof notification === 'string' ? this.ldes_stream : notification.stream_id || this.ldes_stream;
             this.logger.info({}, 'latest_event_received_preprocessing_started');
             /** 
              * The latest event is a string in Turtle format.
@@ -97,13 +110,21 @@ export class NotificationStreamProcessor {
              * we need to compare the LDP resource before and after the PATCH request (i.e doing an incremental maintainance of the LDP resource) which is out of scope
              * of Heimdall (for now, and the support for this will be implemented in the future).
              */
+            const start_epoch_ms = Date.now();
+            const start_monotonic_ns = process.hrtime.bigint();
             const latest_event_store = await turtleStringToStore(latest_event);
             const timestamp = latest_event_store.getQuads(null, DF.namedNode(bucket_strategy), null, null)[0].object.value;
             const timestamp_epoch = Date.parse(timestamp);
+            this.metric_writer.timed('event-processing.csv', 'parsing_timestamp_extraction', {
+                client_id: this.client_id,
+                query_id: this.query_id,
+                event_id,
+                stream_id,
+            }, start_epoch_ms, start_monotonic_ns);
             if (this.stream_name) {
                 this.logger.info({}, 'latest_event_received_preprocessing_completed_adding_to_rsp_engine_started');
                 console.log(`Adding the event store to the RSP Engine for the stream ${this.stream_name}`);
-                await this.add_event_store_to_rsp_engine(latest_event_store, [this.stream_name], timestamp_epoch);
+                await this.add_event_store_to_rsp_engine(latest_event_store, [this.stream_name], timestamp_epoch, event_id);
                 this.logger.info({}, 'latest_event_added_to_rsp_engine');
             }
         });
@@ -116,12 +137,10 @@ export class NotificationStreamProcessor {
      * @param {number} timestamp - The timestamp of the event.
      * @memberof NotificationStreamProcessor
      */
-    public async add_event_store_to_rsp_engine(event_store: any, stream_name: RDFStream[], timestamp: number) {
+    public async add_event_store_to_rsp_engine(event_store: any, stream_name: RDFStream[], timestamp: number, event_id?: string) {
         stream_name.forEach(async (stream: RDFStream) => {
             const quads = event_store.getQuads(null, null, null, null);
-            for (const quad of quads) {
-                stream.add(quad, timestamp)
-            }
+            stream.add(new Set(quads), timestamp, event_id);
         });
     }
 }
