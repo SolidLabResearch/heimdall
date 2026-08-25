@@ -33,6 +33,7 @@ export class HeimdallInstantiator {
     public connection: typeof websocketConnection;
     private readonly metric_writer: MetricWriter;
     private readonly client_id?: string;
+    private readonly ready_promise: Promise<void>;
     /**
      * Creates an instance of HeimdallInstantiator.
      * @param {string} query - The RSPQL query.
@@ -72,8 +73,10 @@ export class HeimdallInstantiator {
             this.stream_array.push(stream.stream_name);
         });
         this.rsp_emitter = this.rsp_engine.register();
-        this.initializeProcessing(query_type);
+        this.ready_promise = this.initializeProcessing(query_type).then(() => undefined);
     }
+
+    public ready(): Promise<void> { return this.ready_promise; }
 
     /**
      * Initialize the processing of the query.
@@ -91,16 +94,17 @@ export class HeimdallInstantiator {
                     this.logger.info({ query_hashed }, `stream_credentials_retrieved`);
                     new DecentralizedFileStreamer(stream, session_credentials, this.from_date, this.to_date, this.rsp_engine, this.query, this.logger);
                 }
-                this.subscribeRStream();
+                await this.subscribeRStream();
                 return true;
             }
             else if (query_type === 'live') {
                 console.log(`The query type is live.`);
                 for (const stream of this.stream_array) {
                     this.logger.info({ query_hashed }, `stream_credentials_retrieved`);
-                    new NotificationStreamProcessor(stream, this.logger, this.rsp_engine, this.event_emitter, this.metric_writer, this.client_id, this.hash_string);
+                    const processor = new NotificationStreamProcessor(stream, this.logger, this.rsp_engine, this.event_emitter, this.metric_writer, this.client_id, this.hash_string);
+                    await processor.start();
                 }
-                this.subscribeRStream();
+                await this.subscribeRStream();
                 return true;
             }
             else {
@@ -117,13 +121,19 @@ export class HeimdallInstantiator {
      * Subscribe to the RStream of the RSP Engine to listen to the bindings, i.e the generated aggregation events and send it to Heimdall's WebSocket server for further processing (i.e. Publishing to the Solid Pod and sending to clients).
      * @memberof HeimdallInstantiator
      */
-    public async subscribeRStream() {
-        this.connect_with_server('ws://localhost:8080/').then(() => {
-            console.log(`The connection with the websocket server has been established.`);
-            this.connection.connected = true;
+    public async subscribeRStream(): Promise<void> {
+        await new Promise<void>((resolve, reject) => {
+            this.client.once('connectFailed', reject);
+            this.client.once('connect', (connection: typeof websocketConnection) => {
+                this.connection = connection;
+                this.connection.connected = true;
+                console.log(`The connection with the websocket server has been established.`);
+                resolve();
+            });
+            this.client.connect('ws://localhost:8080/', HEIMDALL_WEBSOCKET_PROTOCOL);
         });
-        this.client.on('connect', (connection: typeof websocketConnection) => {
-            console.log(`The connection with the server has been established. ${connection.connected}`);
+        {
+            console.log(`The connection with the server has been established. ${this.connection.connected}`);
             this.rsp_emitter.on('RStream', async (object: BindingsWithTimestamp) => {
                 this.metric_writer.record('event-processing.csv', 'rsp_result_generated', {
                     query_id: this.hash_string,
@@ -150,8 +160,8 @@ export class HeimdallInstantiator {
                     this.sendToServer(aggregation_object_string);
                     this.logger.info({}, 'aggregation_event_sent_to_heimdall_websocket_server');
                 }
-            })
-        });
+            });
+        }
     }
 
     // TODO : add extra projection variables to the aggregation event.

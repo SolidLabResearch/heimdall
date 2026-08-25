@@ -38,8 +38,14 @@ export class NotificationStreamProcessor {
         this.metric_writer = metric_writer;
         this.client_id = client_id;
         this.query_id = query_id;
-        this.subscribe_webhook_events();
-        this.retrieve_notification_from_server(this.event_emitter);
+        // Construction is deliberately side-effect free.  The query-ready ACK
+        // is only safe after `start` has installed the event handler and the
+        // Solid notification subscription has completed.
+    }
+
+    public async start(): Promise<void> {
+        await this.retrieve_notification_from_server(this.event_emitter);
+        await this.subscribe_webhook_events();
         this.logger.info({}, 'notification_stream_processor_started');
     }
 

@@ -24,6 +24,7 @@ export class QueryRegistry {
     static connection: typeof websocketConnection;
     public static client: any = new WebSocketClient();
     private readonly metric_writer: MetricWriter;
+    private readonly ready_queries: Map<string, Promise<void>>;
 
     /**
      * Creates an instance of QueryRegistry.
@@ -43,6 +44,7 @@ export class QueryRegistry {
         this.query_hash_map = new Map();
         this.future_queries = new Array<string>();
         this.query_count = 0;
+        this.ready_queries = new Map();
         this.parser = new RSPQLParser();
         this.logger = new Logger();
     }
@@ -58,14 +60,17 @@ export class QueryRegistry {
      * @returns {Promise<boolean>} - Returns true if the query is unique, otherwise false.
      * @memberof QueryRegistry
      */
-    async register_query(rspql_query: string, query_registry: QueryRegistry, from_timestamp: number, to_timestamp: number, logger: any, query_type: any, event_emitter: any, client_id?: string): Promise<boolean> {
+    async register_query(rspql_query: string, query_registry: QueryRegistry, from_timestamp: number, to_timestamp: number, logger: any, query_type: any, event_emitter: any, client_id?: string): Promise<{ unique: boolean, ready: Promise<void> }> {
         if (await query_registry.add_query_in_registry(rspql_query, logger)) {
             /*
             The query is not already executing or computed ; it is unique. So, just compute it and send it via the websocket.
             */
             logger.info({}, 'query_is_unique');
-            new HeimdallInstantiator(rspql_query, from_timestamp, to_timestamp, logger, query_type, event_emitter, '', this.metric_writer, client_id);
-            return true;
+            const processor = new HeimdallInstantiator(rspql_query, from_timestamp, to_timestamp, logger, query_type, event_emitter, '', this.metric_writer, client_id);
+            const ready = processor.ready();
+            this.ready_queries.set(hash_string_md5(rspql_query), ready);
+            this.metric_writer.record('initialization.csv', 'shared_query_instance_created', { query_id: hash_string_md5(rspql_query), client_id });
+            return { unique: true, ready };
         }
         else {
             /*
@@ -73,7 +78,10 @@ export class QueryRegistry {
             */
             logger.info({}, 'query_is_not_unique');
             this.logger.debug(`The query you have registered is already executing.`);
-            return false;
+            const ready = this.ready_queries.get(hash_string_md5(rspql_query));
+            if (!ready) throw new Error(`Reused query has no readiness promise: ${hash_string_md5(rspql_query)}`);
+            this.metric_writer.record('initialization.csv', 'shared_query_instance_reused', { query_id: hash_string_md5(rspql_query), client_id });
+            return { unique: false, ready };
         }
 
     }

@@ -104,7 +104,10 @@ export class WebSocketHandler {
                             const { ldes_query, query_hashed, width } = await this.preprocess_query(ws_message.query, ws_message.client_id);
                             this.logger.info({ query_id: query_hashed }, `query_preprocessed`);
                             this.set_connections(query_hashed, connection);
-                            this.process_query(ldes_query, width, query_type, this.event_emitter, ws_message.client_id);
+                            await this.process_query(ldes_query, width, query_type, this.event_emitter, ws_message.client_id);
+                            // QueryHandler has awaited RSP construction, every stream
+                            // handler, every Solid subscription, and result routing.
+                            connection.send(JSON.stringify({ type: 'query_ready', query_id: createHash('sha256').update(ldes_query).digest('hex'), client_id: ws_message.client_id }));
                         }
                         else {
                             throw new Error(`The type of Query is not supported/handled. The type of query is: ${ws_message.type}`);
@@ -298,8 +301,8 @@ export class WebSocketHandler {
      * @param {EventEmitter} event_emitter - The event emitter object.
      * @memberof WebSocketHandler
      */
-    public process_query(query: string, width: number, query_type: string, event_emitter: EventEmitter, client_id?: string) {
-        QueryHandler.handle_ws_query(query, width, this.query_registry, this.logger, this.connections, query_type, event_emitter, client_id);
+    public process_query(query: string, width: number, query_type: string, event_emitter: EventEmitter, client_id?: string): Promise<void> | void {
+        return QueryHandler.handle_ws_query(query, width, this.query_registry, this.logger, this.connections, query_type, event_emitter, client_id);
     }
 
     /**
