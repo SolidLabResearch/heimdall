@@ -7,6 +7,15 @@ import {
 } from './heimdallConfig';
 
 describe('heimdall configuration compatibility', () => {
+    it('advertises the n079-09 benchmark callback defaults', () => {
+        expect(DEFAULT_HEIMDALL_HTTP_SERVER_URL).toBe('http://n079-09.wall1.ilabt.imec.be:8080/');
+        expect(DEFAULT_HEIMDALL_WS_SERVER_URL).toBe('ws://n079-09.wall1.ilabt.imec.be:8080/');
+        expect(resolveHeimdallSetupConfig({})).toEqual({
+            heimdallHttpServerUrl: 'http://n079-09.wall1.ilabt.imec.be:8080/',
+            heimdallWsServerUrl: 'ws://n079-09.wall1.ilabt.imec.be:8080/',
+        });
+    });
+
     it('prefers new setup keys when present', () => {
         expect(resolveHeimdallSetupConfig({
             heimdall_http_server_url: 'http://heimdall.example/http',

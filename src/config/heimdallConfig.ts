@@ -1,5 +1,5 @@
-export const DEFAULT_HEIMDALL_HTTP_SERVER_URL = 'http://n078-22.wall1.ilabt.imec.be:8080/';
-export const DEFAULT_HEIMDALL_WS_SERVER_URL = 'ws://n078-22.wall1.ilabt.imec.be:8080/';
+export const DEFAULT_HEIMDALL_HTTP_SERVER_URL = 'http://n079-09.wall1.ilabt.imec.be:8080/';
+export const DEFAULT_HEIMDALL_WS_SERVER_URL = 'ws://n079-09.wall1.ilabt.imec.be:8080/';
 export const DEFAULT_HEIMDALL_RATE_LIMIT = 30;
 
 export type HeimdallSetupConfig = {
