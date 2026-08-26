@@ -16,4 +16,25 @@ describe('evaluation metric writer', () => {
         expect(lines[1]).toContain('query_reuse_check');
         expect(lines[1]).toContain('run-a');
     });
+
+    it('keeps structured RSP metrics active when diagnostic logging is disabled', () => {
+        const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'heimdall-metrics-disabled-'));
+        const previous = process.env.RSP_JS_DISABLE_LOGGING;
+        process.env.RSP_JS_DISABLE_LOGGING = '1';
+        try {
+            const writer = new MetricWriter(directory, 'run-disabled', 'heimdall');
+            writer.record('event-processing.csv', 'rsp_insertion');
+            writer.record('out-of-order.csv', 'out_of_order_event');
+            writer.record('window-processing.csv', 'window_query_processing');
+            writer.record('window-processing.csv', 'r2r_first_result');
+            const metrics = fs.readFileSync(path.join(directory, 'window-processing.csv'), 'utf8');
+            expect(metrics).toContain('window_query_processing');
+            expect(metrics).toContain('r2r_first_result');
+            expect(fs.readFileSync(path.join(directory, 'event-processing.csv'), 'utf8')).toContain('rsp_insertion');
+            expect(fs.readFileSync(path.join(directory, 'out-of-order.csv'), 'utf8')).toContain('out_of_order_event');
+        } finally {
+            if (previous === undefined) delete process.env.RSP_JS_DISABLE_LOGGING;
+            else process.env.RSP_JS_DISABLE_LOGGING = previous;
+        }
+    });
 });
