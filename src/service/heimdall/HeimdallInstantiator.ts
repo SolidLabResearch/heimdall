@@ -7,7 +7,7 @@ import * as CREDENTIALS from '../../config/PodToken.json';
 import { BindingsWithTimestamp } from "../../utils/Types";
 import { hash_string_md5 } from "../../utils/Util";
 import { Credentials, aggregation_object } from "../../utils/Types";
-import { NotificationStreamProcessor } from "./NotificationStreamProcessor";
+import { SharedStreamRegistry } from './SharedStreamRegistry';
 import { N3ReasonerService } from "../reasoner/N3Reasoner";
 import { HEIMDALL_WEBSOCKET_PROTOCOL } from "../../server/websocketProtocols";
 import { MetricWriter } from '../../evaluation/MetricWriter';
@@ -34,6 +34,7 @@ export class HeimdallInstantiator {
     private readonly metric_writer: MetricWriter;
     private readonly client_id?: string;
     private readonly ready_promise: Promise<void>;
+    private readonly sharedStreamRegistry?: SharedStreamRegistry;
     /**
      * Creates an instance of HeimdallInstantiator.
      * @param {string} query - The RSPQL query.
@@ -45,13 +46,14 @@ export class HeimdallInstantiator {
      * @param {string} rules - The rules for the query.
      * @memberof HeimdallInstantiator
      */
-    public constructor(query: string, from_timestamp: number, to_timestamp: number, logger: any, query_type: string, event_emitter: any, rules: string = '', metric_writer: MetricWriter = new MetricWriter(), client_id?: string) {
+    public constructor(query: string, from_timestamp: number, to_timestamp: number, logger: any, query_type: string, event_emitter: any, rules: string = '', metric_writer: MetricWriter = new MetricWriter(), client_id?: string, sharedStreamRegistry?: SharedStreamRegistry) {
         this.query = query;
         this.rules = rules;
         this.logger = logger;
         this.event_emitter = event_emitter;
         this.metric_writer = metric_writer;
         this.client_id = client_id;
+        this.sharedStreamRegistry = sharedStreamRegistry;
         this.hash_string = hash_string_md5(query);
         this.rsp_engine = new RSPEngine(query, {
             // This delay is evaluation configuration for the 4 Hz experiment only;
@@ -101,8 +103,10 @@ export class HeimdallInstantiator {
                 console.log(`The query type is live.`);
                 for (const stream of this.stream_array) {
                     this.logger.info({ query_hashed }, `stream_credentials_retrieved`);
-                    const processor = new NotificationStreamProcessor(stream, this.logger, this.rsp_engine, this.event_emitter, this.metric_writer, this.client_id, this.hash_string);
-                    await processor.start();
+                    if (!this.sharedStreamRegistry) throw new Error('Live processing requires a SharedStreamRegistry');
+                    const rdfStream = this.rsp_engine.getStream(stream);
+                    if (!rdfStream) throw new Error(`RSP engine has no RDF stream for ${stream}`);
+                    await this.sharedStreamRegistry.attach(stream, this.hash_string, rdfStream);
                 }
                 await this.subscribeRStream();
                 return true;

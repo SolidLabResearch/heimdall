@@ -18,6 +18,7 @@ import {
 } from "./websocketProtocols";
 import { MetricWriter } from '../evaluation/MetricWriter';
 import { createHash } from 'crypto';
+import { SharedStreamRegistry } from '../service/heimdall/SharedStreamRegistry';
 
 /**
  * Class for handling the Websocket server.
@@ -45,7 +46,7 @@ export class WebSocketHandler {
      * @param {*} logger - The logger object.
      * @memberof WebSocketHandler
      */
-    constructor(websocket_server: WebSocket.server, event_emitter: EventEmitter, aggregation_publisher: LDESPublisher | undefined, logger: any, metric_writer: MetricWriter = new MetricWriter()) {
+    constructor(websocket_server: WebSocket.server, event_emitter: EventEmitter, aggregation_publisher: LDESPublisher | undefined, logger: any, metric_writer: MetricWriter = new MetricWriter(), sharedStreamRegistry?: SharedStreamRegistry) {
         this.aggregation_resource_list = [];
         this.logger = logger;
         this.websocket_server = websocket_server;
@@ -54,7 +55,7 @@ export class WebSocketHandler {
         this.connections = new Map<string, WebSocket[]>();
         this.parser = new RSPQLParser();
         this.metric_writer = metric_writer;
-        this.query_registry = new QueryRegistry(metric_writer);
+        this.query_registry = new QueryRegistry(metric_writer, sharedStreamRegistry);
         this.n3_parser = new Parser({ format: 'N-Triples' });
         this.logger.info({}, 'websocket_handler_initialized');
     }

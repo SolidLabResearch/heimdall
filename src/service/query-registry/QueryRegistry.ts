@@ -6,6 +6,7 @@ import { WriteLockArray } from "../../utils/query-registry/Util";
 import { hash_string_md5 } from "../../utils/Util";
 import { HEIMDALL_WEBSOCKET_PROTOCOL } from "../../server/websocketProtocols";
 import { MetricWriter } from '../../evaluation/MetricWriter';
+import { SharedStreamRegistry } from '../heimdall/SharedStreamRegistry';
 const websocketConnection = require('websocket').connection;
 const WebSocketClient = require('websocket').client;
 /**
@@ -25,13 +26,15 @@ export class QueryRegistry {
     public static client: any = new WebSocketClient();
     private readonly metric_writer: MetricWriter;
     private readonly ready_queries: Map<string, Promise<void>>;
+    private readonly sharedStreamRegistry?: SharedStreamRegistry;
 
     /**
      * Creates an instance of QueryRegistry.
      * @memberof QueryRegistry
      */
-    constructor(metric_writer: MetricWriter = new MetricWriter()) {
+    constructor(metric_writer: MetricWriter = new MetricWriter(), sharedStreamRegistry?: SharedStreamRegistry) {
         this.metric_writer = metric_writer;
+        this.sharedStreamRegistry = sharedStreamRegistry;
         /**
          * Map of registered queries which are the queries without any analysis by the QueryRegistry but only registered.  
          */
@@ -66,7 +69,7 @@ export class QueryRegistry {
             The query is not already executing or computed ; it is unique. So, just compute it and send it via the websocket.
             */
             logger.info({}, 'query_is_unique');
-            const processor = new HeimdallInstantiator(rspql_query, from_timestamp, to_timestamp, logger, query_type, event_emitter, '', this.metric_writer, client_id);
+            const processor = new HeimdallInstantiator(rspql_query, from_timestamp, to_timestamp, logger, query_type, event_emitter, '', this.metric_writer, client_id, this.sharedStreamRegistry);
             const ready = processor.ready();
             this.ready_queries.set(hash_string_md5(rspql_query), ready);
             this.metric_writer.record('initialization.csv', 'shared_query_instance_created', { query_id: hash_string_md5(rspql_query), client_id });

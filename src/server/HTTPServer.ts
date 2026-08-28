@@ -4,6 +4,7 @@ import { QueryRegistry } from "../service/query-registry/QueryRegistry";
 import { WebSocketHandler } from "./WebSocketHandler";
 import * as websocket from 'websocket';
 import { MetricWriter } from '../evaluation/MetricWriter';
+import { SharedStreamRegistry } from '../service/heimdall/SharedStreamRegistry';
 const EventEmitter = require('events');
 /**
  * Class for the HTTP Server.
@@ -19,6 +20,7 @@ export class HTTPServer {
     public websocket_handler: any;
     public event_emitter: any;
     private readonly metric_writer: MetricWriter;
+    private readonly shared_stream_registry: SharedStreamRegistry;
     /**
      * Creates an instance of HTTPServer.
      * @param {number} http_port - The port on which the HTTP server is to be started.
@@ -38,8 +40,9 @@ export class HTTPServer {
 
         this.http_server.keepAliveTimeout = 6000;
         this.event_emitter = new EventEmitter();
+        this.shared_stream_registry = new SharedStreamRegistry(this.logger, this.metric_writer);
         this.query_registry = new QueryRegistry(this.metric_writer);
-        this.websocket_handler = new WebSocketHandler(this.websocket_server, this.event_emitter, undefined, this.logger, metric_writer);
+        this.websocket_handler = new WebSocketHandler(this.websocket_server, this.event_emitter, undefined, this.logger, metric_writer, this.shared_stream_registry);
         this.websocket_handler.handle_wss();
         this.logger.info({}, 'http_server_started');
         console.log(`HTTP Server started on port ${http_port} and the process id is ${process.pid}`);
@@ -76,26 +79,8 @@ export class HTTPServer {
                         const inbox_where_event_is_added = webhook_notification_data.target;
                         const ldes_stream_where_event_is_added = inbox_where_event_is_added.replace(/\/\d+\/$/, '/');
                         const added_event_location = webhook_notification_data.object;
-                        const start_epoch_ms = Date.now();
-                        const start_monotonic_ns = process.hrtime.bigint();
-                        const latest_event_response = await fetch(added_event_location, {
-                            method: 'GET',
-                            headers: {
-                                'Accept': 'text/turtle'
-                            }
-                        });
-                        const latest_event = await latest_event_response.text();
-                        this.metric_writer.timed('event-processing.csv', 'event_retrieval', {
-                            event_id: added_event_location,
-                            stream_id: ldes_stream_where_event_is_added,
-                        }, start_epoch_ms, start_monotonic_ns);
-                        console.log(`The latest event is ${latest_event}`);
-                        this.event_emitter.emit(`${ldes_stream_where_event_is_added}`, {
-                            event_id: added_event_location,
-                            stream_id: ldes_stream_where_event_is_added,
-                            latest_event,
-                        });
-                        this.logger.info({}, 'webhook_notification_processed_and_emitted');
+                        await this.shared_stream_registry.handleNotification(ldes_stream_where_event_is_added, added_event_location);
+                        this.logger.info({}, 'webhook_notification_processed');
                     }
                 });
                 break;
