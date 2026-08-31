@@ -18,6 +18,7 @@
         "lint:ts": "eslint . --ext ts --report-unused-disable-directives --max-warnings 0",
         "lint:ts:fix": "eslint . --ext ts --report-unused-disable-directives --max-warnings 0 --fix",
         "lint:no-warning": "eslint . --ext ts --quiet --max-warnings 0"
+        ,"benchmark:init:once": "ts-node src/benchmark/initialization-latency.ts"
     },
     "keywords": [],
     "author": "Kushagra Singh Bisen",
