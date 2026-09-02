@@ -65,7 +65,7 @@ npm run lint:ts
 
 ## Sensors 2026 reproducibility
 
-The untouched Sensors 2026 evaluation snapshot is the annotated tag `sensors-2026-evaluation` at `c663e6b3a2be39688dae7682576de32fb50a8d8c`. It intentionally retains the experiment's testbed-specific configuration and local RSP-JS dependency. The modern runtime keeps the evaluation tooling separate: see [EVALUATION-METRICS.md](./EVALUATION-METRICS.md) and [EVALUATION-DEPLOYMENT-AUDIT.md](./EVALUATION-DEPLOYMENT-AUDIT.md). To reproduce that experiment, check out the tag and follow its historical evaluation setup; the imec n079 host is not required for normal Heimdall use.
+The untouched Sensors 2026 evaluation snapshot is the annotated tag `sensors-2026-evaluation` at `c663e6b3a2be39688dae7682576de32fb50a8d8c`. It intentionally retains the experiment's testbed-specific configuration and local RSP-JS dependency. The modern runtime keeps the evaluation tooling separate: see [EVALUATION-METRICS.md](./EVALUATION-METRICS.md) and [EVALUATION-DEPLOYMENT-AUDIT.md](./EVALUATION-DEPLOYMENT-AUDIT.md). To reproduce that experiment, check out the tag and follow its historical evaluation setup; the imec n079 host is not required for normal Heimdall use. Do not retrieve or reuse credentials from historical commits or this tag; configure freshly issued credentials through the mechanisms above.
 
 ## License
 
