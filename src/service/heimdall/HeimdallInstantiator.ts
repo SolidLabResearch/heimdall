@@ -3,7 +3,6 @@ import { RSPQLParser } from "../parsers/RSPQLParser";
 import { DecentralizedFileStreamer } from "./DecentralizedFileStreamer";
 import { v4 as uuidv4 } from 'uuid';
 import { EventEmitter } from "events";
-import * as CREDENTIALS from '../../config/PodToken.json';
 import { BindingsWithTimestamp } from "../../utils/Types";
 import { hash_string_md5 } from "../../utils/Util";
 import { Credentials, aggregation_object } from "../../utils/Types";
@@ -13,6 +12,7 @@ import { HEIMDALL_WEBSOCKET_PROTOCOL } from "../../server/websocketProtocols";
 import { MetricWriter } from '../../evaluation/MetricWriter';
 import * as HEIMDALL_SETUP from '../../config/heimdall_setup.json';
 import { resolveHeimdallWebSocketUrl } from '../../config/heimdallConfig';
+import { loadSourcePodCredentials } from '../../config/privateCredentials';
 const WebSocketClient = require('websocket').client;
 const websocketConnection = require('websocket').connection;
 const parser = new RSPQLParser();
@@ -245,8 +245,9 @@ export class HeimdallInstantiator {
      * @memberof HeimdallInstantiator
      */
     get_session_credentials(stream_name: string) {
-        const credentials: Credentials = CREDENTIALS;
+        const credentials: Credentials = loadSourcePodCredentials();
         const session_credentials = credentials[stream_name];
+        if (!session_credentials) throw new Error(`No source-Pod credentials configured for stream ${stream_name}`);
         return session_credentials;
     }
 

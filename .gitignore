@@ -115,6 +115,12 @@ dist
 docs/
 /scripts/auth-data/
 src/config/authentication_map.ts
+/config/*.local.json
+/src/config/PodToken.json
+/src/config/pod_credentials.json
+/src/config/pod_authentication.json
+/src/server/aggregator-pod/account.json
+/src/server/aggregator-pod/account.local.json
 src/utils/rsp.ts
 src/utils/DecentralizedFileStreamer.ts
 src/utils/UpdateLDES.ts

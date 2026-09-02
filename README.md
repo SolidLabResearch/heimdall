@@ -34,6 +34,12 @@ npm run start-aggregation
 
 For Pod-based discovery, the requested Solid Pod must publish relevant LDES streams through its [Type Index](https://solid.github.io/type-indexes/). Queries that already name concrete `STREAM` URLs preserve those URLs and do not perform Type Index discovery.
 
+### Credentials
+
+Normal `live` operation, including the Sensors-style evaluation path, does not read source-Pod client credentials. `historical+live` uses a client-credential entry for each source stream. Copy [source-pod-credentials.example.json](./config/source-pod-credentials.example.json) to `config/source-pod-credentials.local.json`, fill it locally, and keep it untracked; alternatively set `HEIMDALL_SOURCE_POD_CREDENTIALS_FILE` to an absolute local path.
+
+The legacy aggregation-Pod publishing and authentication features are separate from the normal live path. Configure them with `config/aggregation-pod-credentials.local.json` (from [aggregation-pod-credentials.example.json](./config/aggregation-pod-credentials.example.json)) or `HEIMDALL_AGGREGATION_POD_CREDENTIALS_FILE`. The old local aggregation-Pod seeding utility likewise requires `src/server/aggregator-pod/account.local.json` (from `account.example.json`) or `HEIMDALL_AGGREGATION_POD_ACCOUNT_FILE`. Never commit these local files.
+
 ## Register a query
 
 Connect to Heimdall's WebSocket endpoint with the `heimdall-protocol` subprotocol and send a JSON message such as:
