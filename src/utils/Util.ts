@@ -1,7 +1,7 @@
 import { createHash } from 'crypto'
 import * as fs from 'fs';
 import { aggregationPodAccountFile } from '../config/privateCredentials';
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 const ldfetch = require('ldfetch');
 const ld_fetch = new ldfetch({});
 const N3 = require('n3');
@@ -64,8 +64,13 @@ export async function measureExecutionTimeAsync(func: () => Promise<void>, compo
 export async function create_heimdall_pod(): Promise<boolean> {
     const accountFile = aggregationPodAccountFile();
     if (!fs.existsSync(accountFile)) throw new Error('Missing aggregation-Pod account configuration. Set HEIMDALL_AGGREGATION_POD_ACCOUNT_FILE or copy account.example.json to account.local.json.');
-    exec(`npx community-solid-server --config src/server/aggregator-pod/config.json -f ./aggregation-data/ --seededPodConfigJson ${JSON.stringify(accountFile)}`, (err: any, stdout: any) => {
-        if (stdout.code !== 0) {
+    execFile('npx', [
+        'community-solid-server',
+        '--config', 'src/server/aggregator-pod/config.json',
+        '-f', './aggregation-data/',
+        '--seededPodConfigJson', accountFile
+    ], (err: any) => {
+        if (err) {
             console.log('Error: Failed to create Heimdall pod');
             return false;
         }
