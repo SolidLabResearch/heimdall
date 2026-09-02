@@ -1,0 +1,7 @@
+[
+  {
+    "podName": "aggregation_pod",
+    "email": "REPLACE_WITH_ACCOUNT_EMAIL",
+    "password": "REPLACE_WITH_ACCOUNT_PASSWORD"
+  }
+]

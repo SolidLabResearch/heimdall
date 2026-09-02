@@ -10,7 +10,6 @@ import { QueryRegistry } from "../service/query-registry/QueryRegistry";
 import { AggregationFocusExtractor } from "../service/parsers/AggregationFocusExtractor";
 import { getAuthenticatedSession } from "@treecg/versionawareldesinldp";
 import { accessResource } from "../service/authorization/AccessResource";
-import * as AGG_CONFIG from '../config/pod_credentials.json';
 import {
     HEIMDALL_WEBSOCKET_PROTOCOL,
     LEGACY_WEBSOCKET_PROTOCOL,
@@ -19,6 +18,7 @@ import {
 import { MetricWriter } from '../evaluation/MetricWriter';
 import { createHash } from 'crypto';
 import { SharedStreamRegistry } from '../service/heimdall/SharedStreamRegistry';
+import { loadAggregationPodCredentials } from '../config/privateCredentials';
 
 /**
  * Class for handling the Websocket server.
@@ -381,10 +381,11 @@ export class WebSocketHandler {
     public async if_authenticated(client_id?: string, query_id?: string): Promise<boolean> {
         const start_epoch_ms = Date.now();
         const start_monotonic_ns = process.hrtime.bigint();
+        const credentials = loadAggregationPodCredentials();
         const session = await getAuthenticatedSession({
-            webId: AGG_CONFIG.aggregation_pod_web_id,
-            password: AGG_CONFIG.aggregation_pod_password,
-            email: AGG_CONFIG.aggregation_pod_email,
+            webId: credentials.aggregation_pod_web_id,
+            password: credentials.aggregation_pod_password,
+            email: credentials.aggregation_pod_email,
         })
 
         const authenticated = Boolean(session);
