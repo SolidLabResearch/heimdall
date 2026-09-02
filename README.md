@@ -1,64 +1,57 @@
 # Heimdall
 
-Heimdall is a service for continuous semantic stream processing over RDF streams stored in decentralized Solid environments. Clients register RSP-QL continuous queries through WebSocket. Heimdall resolves the relevant Solid streams, processes their updates, and delivers query results to subscribed clients over WebSocket.
-
-Heimdall has two distinct reuse mechanisms:
-
-- Equivalent-query execution reuse: an equivalent registered query can reuse an existing query execution and its result stream.
-- Shared physical stream acquisition: independent query executions reading the same LDES stream can reuse its Solid notification subscription and upstream event acquisition.
-
-These mechanisms are independent: sharing a physical stream does not make different queries share RSP-JS query execution or results.
+Heimdall is a service for continuous semantic processing of RDF streams stored in decentralized Solid environments. Clients register RSP-QL continuous queries over WebSocket; Heimdall discovers or resolves the relevant streams, processes updates using RSP-JS, and pushes query results back to subscribed clients.
 
 ## Architecture
-
-The live query path is:
 
 ```text
 Client
   -> WebSocketHandler
-  -> query preprocessing / stream discovery
+  -> stream discovery / query preprocessing
   -> QueryRegistry
   -> HeimdallInstantiator
   -> SharedStreamRegistry
   -> Solid Notifications
   -> event retrieval and parsing
   -> RSP-JS
-  -> WebSocket result delivery
+  -> WebSocket results
 ```
 
-- `WebSocketHandler` accepts query registrations, preprocesses stream references, associates clients with executions, and sends readiness acknowledgements and results.
-- `QueryRegistry` identifies equivalent registered queries and coordinates reuse of an existing execution.
-- `HeimdallInstantiator` constructs an RSP-JS engine for a query, installs output routing, and initializes live or historical-plus-live processing.
-- `SharedStreamRegistry` is service-owned live-stream acquisition. It owns Solid notification subscriptions and distributes each retrieved, parsed event to the RSP-JS input stream of every execution attached to that physical LDES stream.
-- [RSP-JS](https://github.com/argahsuknesib/RSP-JS) evaluates RSP-QL windows and emits continuous query results.
+Main components:
 
-## Reuse model
+- `WebSocketHandler` — query registration, preprocessing, client association, readiness acknowledgements, and result delivery.
+- `QueryRegistry` — detects equivalent queries and reuses existing executions.
+- `HeimdallInstantiator` — creates and configures RSP-JS query executions.
+- `SharedStreamRegistry` — shares Solid notification subscriptions, event retrieval, and parsing between executions reading the same physical stream.
+- [RSP-JS](https://github.com/argahsuknesib/RSP-JS) — evaluates RSP-QL queries and windows.
 
-### Equivalent-query reuse
+## Reuse
 
-`QueryRegistry` uses the repository's query-equivalence check to detect equivalent registered queries. An equivalent query reuses the canonical query execution and its result stream; its client is associated with that execution. Heimdall does not claim general query containment, semantic subsumption, or reuse for arbitrary similar queries.
+Heimdall provides two independent reuse mechanisms:
 
-### Shared physical stream acquisition
+1. **Equivalent-query reuse** — equivalent queries share the same RSP-JS execution and result stream.
+2. **Physical stream reuse** — different query executions reading the same LDES stream share its Solid notification subscription, retrieval, and parsing.
 
-Different query executions can read the same canonical LDES stream while remaining separate RSP-JS executions. `SharedStreamRegistry` creates one Solid notification subscription for that stream, retrieves each notified event once, and parses it once. It then inserts the event into each attached execution's own RSP-JS stream. This is separate from equivalent-query reuse and does not share results across non-equivalent queries.
+Physical stream reuse does **not** imply shared query execution or results.
 
 ## Features
 
-- RSP-QL continuous processing through RSP-JS
-- `live` and `historical+live` query modes
-- Explicit `STREAM` URLs in RSP-QL queries, including preserved multi-stream queries
-- Solid Type Index-based stream discovery for the supported single-source form
+- RSP-QL continuous processing with RSP-JS
+- `live` and `historical+live` processing
+- Explicit single- and multi-stream `STREAM` URLs
+- Solid Type Index stream discovery
 - Equivalent-query execution reuse
-- SharedStreamRegistry physical subscription, retrieval, and parsing reuse
-- Solid Notifications for live stream updates
-- WebSocket result delivery and `query_ready` acknowledgement
-- Structured evaluation and runtime instrumentation
+- Shared physical stream acquisition
+- Solid Notifications
+- WebSocket query registration and result delivery
+- Runtime and evaluation instrumentation
 
 ## Requirements
 
-- Node.js and npm. `package.json` does not currently declare an `engines` version range.
-- A Solid / LDES-in-LDP deployment for the streams being queried. For discovery, the Pod must expose appropriate LDES metadata through its Type Index. Live acquisition also expects the Solid notification and LDP metadata endpoints used by the stream.
-- RSP-JS, installed as the exact public Git revision `db30dea9c2e9182379d920423c230566512f629c` by npm.
+- Node.js and npm
+- A Solid / LDES-in-LDP deployment
+- RSP-JS, pinned to Git revision:
+  `db30dea9c2e9182379d920423c230566512f629c`
 
 ## Installation
 
@@ -69,29 +62,45 @@ npm install
 npm run build
 ```
 
-Current maintained code pins RSP-JS to `db30dea9c2e9182379d920423c230566512f629c`. A manually prepared sibling `../RSP-JS` checkout is not required. The frozen evaluation snapshot retains its historical dependency arrangement.
+RSP-JS is installed automatically through npm; a separate `../RSP-JS` checkout is not required.
 
-## Running Heimdall
-
-The aggregation service command is:
+## Running
 
 ```bash
 npm run start-aggregation
 ```
 
-The command starts the HTTP/WebSocket service on port 8080 by default. When the service is running, `GET /health` returns `{ "status": "ok" }`.
+The service runs on port `8080` by default.
+
+Health check:
+
+```text
+GET /health
+```
+
+returns:
+
+```json
+{ "status": "ok" }
+```
 
 ## Configuration
 
-`src/config/heimdall_setup.json` supplies JSON configuration. The resolved service URLs use this precedence, from highest to lowest:
+Configuration is read from:
+
+```text
+src/config/heimdall_setup.json
+```
+
+Service URLs use the following precedence:
 
 1. `HEIMDALL_HTTP_SERVER_URL` / `HEIMDALL_WS_SERVER_URL`
 2. Legacy `AGGREGATOR_HTTP_SERVER_URL` / `AGGREGATOR_WS_SERVER_URL`
-3. `heimdall_http_server_url` / `heimdall_ws_server_url` in JSON
-4. Legacy `aggregator_http_server_url` / `aggregator_ws_server_url` in JSON
-5. Localhost defaults: `http://localhost:8080/` and `ws://localhost:8080/`
+3. `heimdall_http_server_url` / `heimdall_ws_server_url`
+4. Legacy JSON aggregator values
+5. `http://localhost:8080/` / `ws://localhost:8080/`
 
-For example:
+Example:
 
 ```bash
 HEIMDALL_HTTP_SERVER_URL=https://heimdall.example/ \
@@ -99,30 +108,46 @@ HEIMDALL_WS_SERVER_URL=wss://heimdall.example/ \
 npm run start-aggregation
 ```
 
-The legacy names remain for compatibility. Normal defaults and examples do not point to an experiment testbed.
+## Stream Resolution
 
-## Stream resolution
+Heimdall supports:
 
-Heimdall supports two stream-reference paths:
+### Explicit Stream URLs
 
-1. **Explicit `STREAM` URLs.** RSP-QL queries name their sources with `STREAM` URLs. Queries with multiple stream references preserve every supplied URL without discovery or mutation.
-2. **Type Index discovery.** For the current single-source form, Heimdall treats the `STREAM` source as a Solid Pod, extracts the query's aggregation focus, resolves a relevant LDES stream through the Pod's Type Index, and substitutes that stream in the query. If no relevant stream is found, registration fails rather than selecting an arbitrary stream. The current implementation therefore does not provide a separate single-stream bypass for Type Index discovery.
+Queries can directly identify streams through `STREAM` URLs. Multi-stream queries preserve all supplied URLs.
 
-## Register a query
+### Type Index Discovery
 
-Connect to Heimdall's WebSocket endpoint using the `heimdall-protocol` subprotocol. The server also accepts the legacy `solid-stream-aggregator-protocol` subprotocol for compatibility, but new clients should use `heimdall-protocol`.
+For the supported single-source form, the `STREAM` source can identify a Solid Pod. Heimdall uses the query's aggregation focus and the Pod's Type Index to resolve the relevant LDES stream.
 
-Send a JSON message containing a query, a processing type, and a client identifier:
+Registration fails if no matching stream can be found.
+
+## Registering a Query
+
+Connect using the WebSocket subprotocol:
+
+```text
+heimdall-protocol
+```
+
+The legacy `solid-stream-aggregator-protocol` remains supported.
+
+Example registration:
 
 ```json
 {
-  "query": "REGISTER RSTREAM <urn:result> AS SELECT * FROM STREAM <https://pod.example/stream/> [RANGE PT10S STEP PT10S] WHERE { ?s ?p ?o }",
+  "query": "REGISTER RSTREAM <urn:result> AS SELECT * FROM STREAM <https://pod.example/stream/> [RANGE X STEP Y] WHERE { ?s ?p ?o }",
   "type": "live",
   "client_id": "client-1"
 }
 ```
 
-`type` must be `live` or `historical+live`. After query registration, output routing, and the required live-stream attachment or reuse have completed, Heimdall sends:
+`type` must be either:
+
+- `live`
+- `historical+live`
+
+Once query execution and stream attachment are ready, Heimdall sends:
 
 ```json
 {
@@ -132,27 +157,45 @@ Send a JSON message containing a query, a processing type, and a client identifi
 }
 ```
 
-`query_ready` is not sent merely because the request was received: the registration path awaits the execution readiness promise, including RSP-JS construction, result routing, and the relevant shared-stream initialization or reuse. Query results are then sent through the same service WebSocket path.
+Query results are subsequently delivered over the same WebSocket connection.
 
-## Credentials
+## Protected Solid Sources
 
-Heimdall supports both public and protected Solid sources. When credentials are configured for a matching source, Heimdall uses authenticated access; otherwise it uses unauthenticated access. Authentication is a property of the source Pod or stream deployment, not of whether a query is `live` or `historical+live`.
+Heimdall supports public and authenticated Solid sources.
 
-For a protected source, copy [source-pod-credentials.example.json](./config/source-pod-credentials.example.json) to `config/source-pod-credentials.local.json`, fill it locally, and keep it untracked. Alternatively, set `HEIMDALL_SOURCE_POD_CREDENTIALS_FILE` to a local credential-file path. Each key is a source stream URL or a Pod URL prefix; matching is restricted to the same origin and path boundary, and the most-specific matching entry is selected. Same-origin resources discovered from a configured stream can reuse that source session; cross-origin notification resources require their own matching configuration. The entry contains a CSS client-credential `id`, `secret`, and `idp`.
+Copy:
 
-When configured, Heimdall reuses the resulting authenticated session for relevant source operations: Type Index lookup, LDES metadata and historical retrieval, notification inbox and subscription-server discovery, notification subscription creation, and notification-event retrieval. When no matching source credentials are configured, these operations use ordinary unauthenticated HTTP, so public streams do not need a credentials file. A protected resource with no usable credentials reports the underlying authorization failure; an invalid configured entry reports a configuration error.
+```text
+config/source-pod-credentials.example.json
+```
 
-### Legacy aggregation-Pod functionality
+to:
 
-The retained aggregation-Pod authentication and publishing features are separate from normal live processing. Configure them with `config/aggregation-pod-credentials.local.json`, based on [aggregation-pod-credentials.example.json](./config/aggregation-pod-credentials.example.json), or set `HEIMDALL_AGGREGATION_POD_CREDENTIALS_FILE`.
+```text
+config/source-pod-credentials.local.json
+```
 
-The old local aggregation-Pod seeding helper additionally uses `src/server/aggregator-pod/account.local.json`, based on `src/server/aggregator-pod/account.example.json`, or `HEIMDALL_AGGREGATION_POD_ACCOUNT_FILE`.
+or specify a credentials file with:
 
-These local credential files are Git-ignored. Never commit real credentials. Credentials previously present in historical commits or the evaluation snapshot must be treated as exposed and must never be retrieved or reused.
+```bash
+HEIMDALL_SOURCE_POD_CREDENTIALS_FILE=/path/to/credentials.json
+```
+
+Credential entries contain CSS client credentials:
+
+```json
+{
+  "id": "...",
+  "secret": "...",
+  "idp": "..."
+}
+```
+
+Entries can match stream URLs or Pod URL prefixes. Heimdall selects the most-specific valid match and reuses authenticated sessions for discovery, historical retrieval, notification setup, subscriptions, and event retrieval.
+
+Without matching credentials, Heimdall uses unauthenticated HTTP.
 
 ## Testing
-
-Run the available checks with:
 
 ```bash
 npm run build
@@ -161,37 +204,30 @@ npm test -- --runInBand
 npm run lint:ts
 ```
 
-The build, TypeScript check, and test suite provide the primary local validation path. TypeScript linting still has substantial legacy debt and is not treated as a clean baseline for unrelated documentation work.
+Build, TypeScript checking, and tests are the primary validation path. The TypeScript lint baseline still contains legacy issues.
 
-## Evaluation reproducibility
+## Repository Structure
 
-`master` is the maintained Heimdall implementation. `evaluation-2026-snapshot` is a frozen historical implementation used for the 2026 experimental evaluation; it dereferences to `c663e6b3a2be39688dae7682576de32fb50a8d8c`.
-
-The tag preserves Heimdall's source state only. Complete reproduction additionally requires the corresponding RSP-JS revision, Solid deployment, workload and data, configuration, and infrastructure. Consult [EVALUATION-METRICS.md](./EVALUATION-METRICS.md) for the metric contract and [EVALUATION-DEPLOYMENT-AUDIT.md](./EVALUATION-DEPLOYMENT-AUDIT.md) for deployment-path distinctions.
-
-`master` uses the corrected RSP-JS runtime dependency above. The evaluation snapshot remains the exact historical software snapshot and retains its historical dependency setup.
-
-Do not use historical commits or the evaluation snapshot as a credential source.
-
-## Repository structure
-
-- `src/server/` — HTTP, WebSocket, and query-registration handling
-- `src/service/heimdall/` — query instantiation, live stream processing, and `SharedStreamRegistry`
-- `src/service/query-registry/` — equivalent-query registration and readiness tracking
-- `src/config/` — runtime configuration; `config/` contains safe credential templates
-- `src/benchmark/` — initialization-latency benchmark code
-- `src/evaluation/` — metric writing and runtime instrumentation
-- `src/test/` and colocated `*.test.ts` files — test support and tests
-- `scripts/` — local Solid server and UMA-related utility scripts
+```text
+src/server/                  HTTP and WebSocket handling
+src/service/heimdall/        Query execution and SharedStreamRegistry
+src/service/query-registry/  Query reuse and readiness tracking
+src/config/                  Runtime configuration
+config/                      Credential templates
+src/benchmark/               Benchmark code
+src/evaluation/              Runtime instrumentation
+src/test/                    Tests and test utilities
+scripts/                     Solid/UMA utility scripts
+```
 
 ## Citation
 
-No `CITATION.cff` is currently included. If you use Heimdall in academic work, cite this repository and its version or commit identifier.
+No `CITATION.cff` is currently provided. For academic use, cite the repository together with the corresponding version or commit.
 
 ## License
 
-Heimdall is released under the [MIT License](./LICENCE.md), copyright Ghent University - imec.
+[MIT License](./LICENCE.md) — Ghent University - imec.
 
 ## Contact
 
-For questions, contact [Kush](mailto:kushagrasingh.bisen@ugent.be) or open an issue at [SolidLabResearch/heimdall](https://github.com/SolidLabResearch/heimdall/issues).
+[Kush](mailto:kushagrasingh.bisen@ugent.be) or open an issue in the [Heimdall repository](https://github.com/SolidLabResearch/heimdall/issues).
