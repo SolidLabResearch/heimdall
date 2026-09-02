@@ -1,5 +1,5 @@
-export const DEFAULT_HEIMDALL_HTTP_SERVER_URL = 'http://n079-09.wall1.ilabt.imec.be:8080/';
-export const DEFAULT_HEIMDALL_WS_SERVER_URL = 'ws://n079-09.wall1.ilabt.imec.be:8080/';
+export const DEFAULT_HEIMDALL_HTTP_SERVER_URL = 'http://localhost:8080/';
+export const DEFAULT_HEIMDALL_WS_SERVER_URL = 'ws://localhost:8080/';
 export const DEFAULT_HEIMDALL_RATE_LIMIT = 30;
 
 export type HeimdallSetupConfig = {
@@ -28,15 +28,20 @@ export type ResolvedHeimdallRuntimeConfig = {
 /**
  * Resolve Heimdall setup URLs from new or legacy configuration keys.
  * @param {HeimdallSetupConfig} config - The raw setup configuration object.
+ * @param {Record<string, string | undefined>} environment - Environment overrides.
  * @returns {ResolvedHeimdallSetupConfig} The normalized setup configuration.
  */
-export function resolveHeimdallSetupConfig(config: HeimdallSetupConfig): ResolvedHeimdallSetupConfig {
+export function resolveHeimdallSetupConfig(config: HeimdallSetupConfig, environment: Record<string, string | undefined> = process.env): ResolvedHeimdallSetupConfig {
     return {
         heimdallHttpServerUrl:
+            environment.HEIMDALL_HTTP_SERVER_URL ??
+            environment.AGGREGATOR_HTTP_SERVER_URL ??
             config.heimdall_http_server_url ??
             config.aggregator_http_server_url ??
             DEFAULT_HEIMDALL_HTTP_SERVER_URL,
         heimdallWsServerUrl:
+            environment.HEIMDALL_WS_SERVER_URL ??
+            environment.AGGREGATOR_WS_SERVER_URL ??
             config.heimdall_ws_server_url ??
             config.aggregator_ws_server_url ??
             DEFAULT_HEIMDALL_WS_SERVER_URL,
