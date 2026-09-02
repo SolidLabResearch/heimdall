@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as childProcess from 'child_process';
-import { createRuntimeResources, runtimeResourceSample } from './Runtime';
+import { createRuntimeResources, REQUIRED_RSP_JS_REVISION, runtimeResourceSample } from './Runtime';
 
 describe('evaluation runtime resources', () => {
     it('uses the documented resource CSV schema including derived CPU utilization', async () => {
@@ -28,10 +28,11 @@ describe('evaluation runtime resources', () => {
         expect(second).toMatchObject({ cpuUserUs: 30, cpuSystemUs: 15, rssBytes: 4096, cpuUserDeltaUs: 20, cpuSystemDeltaUs: 10, wallDeltaUs: 500, cpuUtilizationPercent: 6 });
     });
 
-    it('resolves the sibling frozen rsp-js checkout with benchmark logging control support', () => {
+    it('resolves the pinned rsp-js package with benchmark logging control support', () => {
         const resolved = childProcess.execFileSync('node', ['-e', 'process.stdout.write(require.resolve("rsp-js"))'], { cwd: path.resolve(__dirname, '../..'), encoding: 'utf8' }).trim();
-        const expectedRoot = fs.realpathSync(path.resolve(__dirname, '../../../RSP-JS'));
+        const expectedRoot = fs.realpathSync(path.resolve(__dirname, '../../node_modules/rsp-js'));
         expect(resolved.startsWith(`${expectedRoot}${path.sep}`)).toBe(true);
         expect(fs.readFileSync(path.join(expectedRoot, 'dist', 'util', 'Logger.js'), 'utf8')).toContain('RSP_JS_DISABLE_LOGGING');
+        expect(REQUIRED_RSP_JS_REVISION).toBe('56e773d8416f978d82a8288802532cabdf8ffef6');
     });
 });

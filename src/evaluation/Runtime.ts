@@ -3,6 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { MetricWriter } from './MetricWriter';
 
+export const REQUIRED_RSP_JS_REVISION = '56e773d8416f978d82a8288802532cabdf8ffef6';
+
 export interface RuntimeResources {
     writer: MetricWriter;
     logger: any;
@@ -75,12 +77,12 @@ function parseInterval(value: string | undefined): number {
 
 function writeRspMetadata(writer: MetricWriter): void {
     const dependencyPath = process.env.HEIMDALL_RSP_JS_PATH || path.resolve(__dirname, '../../node_modules/rsp-js');
-    let commit = 'unavailable';
-    let dirty = 'unknown';
+    let commit = process.env.HEIMDALL_RSP_JS_REVISION || REQUIRED_RSP_JS_REVISION;
+    let dirty = 'unavailable';
     try {
         commit = childProcess.execFileSync('git', ['-C', dependencyPath, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
         dirty = childProcess.execFileSync('git', ['-C', dependencyPath, 'status', '--porcelain'], { encoding: 'utf8' }).trim() ? 'true' : 'false';
-    } catch (_) { /* packaged dependencies may not retain .git metadata */ }
+    } catch (_) { /* npm Git dependencies do not retain .git metadata. */ }
     fs.writeFileSync(path.join(writer.resultsDir, 'run-metadata.json'), JSON.stringify({
         run_id: writer.runId,
         approach: writer.approach,
