@@ -139,15 +139,8 @@ async function createAuthenticatedFetchFunction(credentials: any, passedFetch: a
  */
 export async function session_with_credentials(credentials: any): Promise<Session> {
     const session = new Session();
-    try {
-        session.fetch = await makeAuthenticatedFetch(credentials, fetch);
-        session.info.isLoggedIn = true
-    }
-    catch (e: unknown) {
-        const error = e as Error
-        console.log(`Error while creating session: ${error.message}`);
-    }
-
+    session.fetch = await makeAuthenticatedFetch(credentials, fetch);
+    session.info.isLoggedIn = true;
     return session
 }
 

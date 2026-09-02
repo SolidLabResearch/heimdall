@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { aggregationPodAccountFile, loadAggregationPodCredentials, loadSourcePodCredentials } from './privateCredentials';
+import { aggregationPodAccountFile, loadAggregationPodCredentials, loadOptionalSourcePodCredentials, loadSourcePodCredentials } from './privateCredentials';
 
 describe('private credential configuration', () => {
     const previousSource = process.env.HEIMDALL_SOURCE_POD_CREDENTIALS_FILE;
@@ -35,5 +35,10 @@ describe('private credential configuration', () => {
     it('fails clearly when historical source credentials are not configured', () => {
         delete process.env.HEIMDALL_SOURCE_POD_CREDENTIALS_FILE;
         expect(() => loadSourcePodCredentials()).toThrow('Missing source-Pod credentials');
+    });
+
+    it('treats absent source credentials as an optional public-stream configuration', () => {
+        delete process.env.HEIMDALL_SOURCE_POD_CREDENTIALS_FILE;
+        expect(loadOptionalSourcePodCredentials()).toEqual({});
     });
 });

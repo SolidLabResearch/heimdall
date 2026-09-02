@@ -1,4 +1,3 @@
-import axios from 'axios';
 import { SubscriptionServerNotification } from '../Types';
 import * as HEIMDALL_SETUP from '../../config/heimdall_setup.json';
 import { resolveHeimdallSetupConfig } from '../../config/heimdallConfig';
@@ -14,25 +13,27 @@ export interface NotificationTimingObserver {
     subscriptionResponse?: (ok: boolean, channel?: string) => void;
 }
 
+export type NotificationFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
 /**
  * Extracts the subscription server from the given resource.
  * @param {string} resource - The resource which you want to read the notifications from.
  * @returns {Promise<SubscriptionServerNotification | undefined>} - A promise which returns the subscription server or if not returns undefined.
  */
-export async function extract_subscription_server(resource: string, observer?: NotificationTimingObserver): Promise<SubscriptionServerNotification | undefined> {
+export async function extract_subscription_server(resource: string, observer?: NotificationTimingObserver, sourceFetch: NotificationFetch = fetch): Promise<SubscriptionServerNotification | undefined> {
     const store = new N3.Store();
     try {
         observer?.subscriptionServerStart?.();
-        const response = await axios.head(resource);
-        const link_header = response.headers['link'];
+        const response = await sourceFetch(resource, { method: 'HEAD' });
+        const link_header = response.headers.get('link');
         if (link_header) {
             const link_header_parts = link_header.split(',');
             for (const part of link_header_parts) {
                 const [link, rel] = part.split(';').map((item: string) => item.trim());
                 if (rel === 'rel="http://www.w3.org/ns/solid/terms#storageDescription"') {
                     const storage_description_link = link.slice(1, -1); // remove the < and >\
-                    const storage_description_response = await axios.get(storage_description_link);
-                    const storage_description = storage_description_response.data;
+                    const storage_description_response = await sourceFetch(storage_description_link, { headers: { Accept: 'text/turtle' } });
+                    const storage_description = await storage_description_response.text();
                     await parser.parse(storage_description, (error: any, quad: any) => {
                         if (quad) {
                             store.addQuad(quad);
@@ -65,11 +66,11 @@ export async function extract_subscription_server(resource: string, observer?: N
  * @param {string} ldes_stream_location - The location of the LDES stream.
  * @returns {Promise<string>} - A promise which returns the inbox location.
  */
-export async function extract_ldp_inbox(ldes_stream_location: string, observer?: NotificationTimingObserver) {
+export async function extract_ldp_inbox(ldes_stream_location: string, observer?: NotificationTimingObserver, sourceFetch: NotificationFetch = fetch) {
     const store = new N3.Store();
     try {
         observer?.inboxStart?.();
-        const response = await fetch(ldes_stream_location);
+        const response = await sourceFetch(ldes_stream_location);
         if (response) {
             await parser.parse(await response.text(), (error: any, quad: any) => {
                 if (error) {
@@ -100,7 +101,7 @@ export async function extract_ldp_inbox(ldes_stream_location: string, observer?:
  * @param {string} inbox_location - The location of the inbox where the notifications are written by the client(s).
  * @returns {Promise<string>} - A promise which returns the response text.
  */
-export async function create_subscription(subscription_server: string, inbox_location: string, observer?: NotificationTimingObserver) {
+export async function create_subscription(subscription_server: string, inbox_location: string, observer?: NotificationTimingObserver, sourceFetch: NotificationFetch = fetch) {
     try {
         observer?.subscriptionCreationStart?.();
         const heimdallSetupConfig = resolveHeimdallSetupConfig(HEIMDALL_SETUP);
@@ -110,7 +111,7 @@ export async function create_subscription(subscription_server: string, inbox_loc
             "topic": `${inbox_location}`,
             "sendTo": `${heimdallSetupConfig.heimdallHttpServerUrl}`,
         }
-        const response = await fetch(subscription_server, {
+        const response = await sourceFetch(subscription_server, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/ld+json'

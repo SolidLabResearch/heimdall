@@ -5,14 +5,14 @@ import { v4 as uuidv4 } from 'uuid';
 import { EventEmitter } from "events";
 import { BindingsWithTimestamp } from "../../utils/Types";
 import { hash_string_md5 } from "../../utils/Util";
-import { Credentials, aggregation_object } from "../../utils/Types";
+import { aggregation_object } from "../../utils/Types";
 import { SharedStreamRegistry } from './SharedStreamRegistry';
 import { N3ReasonerService } from "../reasoner/N3Reasoner";
 import { HEIMDALL_WEBSOCKET_PROTOCOL } from "../../server/websocketProtocols";
 import { MetricWriter } from '../../evaluation/MetricWriter';
 import * as HEIMDALL_SETUP from '../../config/heimdall_setup.json';
 import { resolveHeimdallWebSocketUrl } from '../../config/heimdallConfig';
-import { loadSourcePodCredentials } from '../../config/privateCredentials';
+import { SourcePodAccess } from './SourcePodAccess';
 const WebSocketClient = require('websocket').client;
 const websocketConnection = require('websocket').connection;
 const parser = new RSPQLParser();
@@ -37,6 +37,7 @@ export class HeimdallInstantiator {
     private readonly client_id?: string;
     private readonly ready_promise: Promise<void>;
     private readonly sharedStreamRegistry?: SharedStreamRegistry;
+    private readonly sourcePodAccess: SourcePodAccess;
     /**
      * Creates an instance of HeimdallInstantiator.
      * @param {string} query - The RSPQL query.
@@ -48,7 +49,7 @@ export class HeimdallInstantiator {
      * @param {string} rules - The rules for the query.
      * @memberof HeimdallInstantiator
      */
-    public constructor(query: string, from_timestamp: number, to_timestamp: number, logger: any, query_type: string, event_emitter: any, rules: string = '', metric_writer: MetricWriter = new MetricWriter(), client_id?: string, sharedStreamRegistry?: SharedStreamRegistry) {
+    public constructor(query: string, from_timestamp: number, to_timestamp: number, logger: any, query_type: string, event_emitter: any, rules: string = '', metric_writer: MetricWriter = new MetricWriter(), client_id?: string, sharedStreamRegistry?: SharedStreamRegistry, sourcePodAccess: SourcePodAccess = sharedStreamRegistry?.sourcePodAccess || new SourcePodAccess()) {
         this.query = query;
         this.rules = rules;
         this.logger = logger;
@@ -56,6 +57,7 @@ export class HeimdallInstantiator {
         this.metric_writer = metric_writer;
         this.client_id = client_id;
         this.sharedStreamRegistry = sharedStreamRegistry;
+        this.sourcePodAccess = sourcePodAccess;
         this.hash_string = hash_string_md5(query);
         this.rsp_engine = new RSPEngine(query, {
             // This delay is evaluation configuration for the 4 Hz experiment only;
@@ -94,9 +96,7 @@ export class HeimdallInstantiator {
         if (this.stream_array.length !== 0) {
             if (query_type === 'historical+live') {
                 for (const stream of this.stream_array) {
-                    const session_credentials = this.get_session_credentials(stream);
-                    this.logger.info({ query_hashed }, `stream_credentials_retrieved`);
-                    new DecentralizedFileStreamer(stream, session_credentials, this.from_date, this.to_date, this.rsp_engine, this.query, this.logger);
+                    new DecentralizedFileStreamer(stream, this.sourcePodAccess, this.from_date, this.to_date, this.rsp_engine, this.query, this.logger);
                 }
                 await this.subscribeRStream();
                 return true;
@@ -108,7 +108,6 @@ export class HeimdallInstantiator {
                 // must not precede this query's RStream listener.
                 await this.subscribeRStream();
                 for (const stream of this.stream_array) {
-                    this.logger.info({ query_hashed }, `stream_credentials_retrieved`);
                     if (!this.sharedStreamRegistry) throw new Error('Live processing requires a SharedStreamRegistry');
                     const rdfStream = this.rsp_engine.getStream(stream);
                     if (!rdfStream) throw new Error(`RSP engine has no RDF stream for ${stream}`);
@@ -238,17 +237,4 @@ export class HeimdallInstantiator {
             });
         }
     }
-    /**
-     * Get the session credentials for the Solid Pod.
-     * @param {string} stream_name - The name of the stream (i.e the LDES in LDP of the Solid Pod).
-     * @returns {Credentials} - The session credentials.
-     * @memberof HeimdallInstantiator
-     */
-    get_session_credentials(stream_name: string) {
-        const credentials: Credentials = loadSourcePodCredentials();
-        const session_credentials = credentials[stream_name];
-        if (!session_credentials) throw new Error(`No source-Pod credentials configured for stream ${stream_name}`);
-        return session_credentials;
-    }
-
 }

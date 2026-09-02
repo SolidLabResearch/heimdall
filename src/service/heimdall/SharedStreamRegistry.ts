@@ -5,6 +5,7 @@ import { TREE } from '@treecg/versionawareldesinldp';
 import { RDFStream } from 'rsp-js';
 import { create_subscription, extract_ldp_inbox, extract_subscription_server } from '../../utils/notifications/Util';
 import { MetricWriter } from '../../evaluation/MetricWriter';
+import { SourcePodAccess } from './SourcePodAccess';
 
 const DF = new DataFactory();
 
@@ -13,7 +14,7 @@ export interface SharedStreamRegistryDependencies {
     resolveInbox(streamUrl: string): Promise<string>;
     createSubscription(streamUrl: string, inboxUrl: string): Promise<unknown>;
     readBucketStrategy(streamUrl: string): Promise<string>;
-    fetchEvent(eventUrl: string): Promise<string>;
+    fetchEvent(streamUrl: string, eventUrl: string): Promise<string>;
     parseEvent(turtle: string): Promise<any>;
 }
 /* eslint-enable no-unused-vars */
@@ -37,17 +38,20 @@ export class SharedStreamRegistry {
     private readonly dependencies: SharedStreamRegistryDependencies;
     private readonly logger: any;
     private readonly metricWriter: MetricWriter;
+    public readonly sourcePodAccess: SourcePodAccess;
 
     public constructor(
         logger: any,
         metricWriter: MetricWriter = new MetricWriter(),
         dependencies: Partial<SharedStreamRegistryDependencies> = {},
+        sourcePodAccess: SourcePodAccess = new SourcePodAccess(),
     ) {
         this.logger = logger;
         this.metricWriter = metricWriter;
+        this.sourcePodAccess = sourcePodAccess;
         this.dependencies = {
             resolveInbox: async (streamUrl) => {
-                const inbox = await extract_ldp_inbox(streamUrl);
+                const inbox = await extract_ldp_inbox(streamUrl, undefined, await this.sourcePodAccess.fetchFor(streamUrl));
                 if (!inbox) throw new Error(`No LDP inbox found for stream ${streamUrl}`);
                 return inbox;
             },
@@ -122,7 +126,7 @@ export class SharedStreamRegistry {
         await state.creation;
         const retrievalStartEpochMs = Date.now();
         const retrievalStartMonotonicNs = process.hrtime.bigint();
-        const turtle = await this.dependencies.fetchEvent(eventUrl);
+        const turtle = await this.dependencies.fetchEvent(key, eventUrl);
         this.metricWriter.timed('event-processing.csv', 'event_retrieval', { event_id: eventUrl, stream_id: key }, retrievalStartEpochMs, retrievalStartMonotonicNs);
 
         const parsingStartEpochMs = Date.now();
@@ -172,21 +176,22 @@ export class SharedStreamRegistry {
     }
 
     private async createPhysicalSubscription(streamUrl: string, inbox: string): Promise<unknown> {
-        const server = await extract_subscription_server(inbox);
+        const sourceFetch = await this.sourcePodAccess.fetchFor(streamUrl);
+        const server = await extract_subscription_server(inbox, undefined, sourceFetch);
         if (!server) throw new Error(`No subscription server found for stream ${streamUrl}`);
-        return create_subscription(server.location, inbox);
+        return create_subscription(server.location, inbox, undefined, sourceFetch);
     }
 
     private async readBucketStrategy(streamUrl: string): Promise<string> {
-        const ldes = new LDESinLDP(streamUrl, new LDPCommunication());
+        const ldes = new LDESinLDP(streamUrl, await this.sourcePodAccess.communicationFor(streamUrl));
         const metadata = await ldes.readMetadata();
         const quad = metadata.getQuads(streamUrl + '#BucketizeStrategy', TREE.path, null, null)[0];
         if (!quad) throw new Error(`No bucket strategy found for stream ${streamUrl}`);
         return quad.object.value;
     }
 
-    private async fetchEvent(eventUrl: string): Promise<string> {
-        const response = await fetch(eventUrl, { method: 'GET', headers: { Accept: 'text/turtle' } });
+    private async fetchEvent(streamUrl: string, eventUrl: string): Promise<string> {
+        const response = await (await this.sourcePodAccess.fetchFor(streamUrl))(eventUrl, { method: 'GET', headers: { Accept: 'text/turtle' } });
         return response.text();
     }
 }
