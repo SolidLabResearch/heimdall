@@ -11,6 +11,8 @@ import { SharedStreamRegistry } from './SharedStreamRegistry';
 import { N3ReasonerService } from "../reasoner/N3Reasoner";
 import { HEIMDALL_WEBSOCKET_PROTOCOL } from "../../server/websocketProtocols";
 import { MetricWriter } from '../../evaluation/MetricWriter';
+import * as HEIMDALL_SETUP from '../../config/heimdall_setup.json';
+import { resolveHeimdallWebSocketUrl } from '../../config/heimdallConfig';
 const WebSocketClient = require('websocket').client;
 const websocketConnection = require('websocket').connection;
 const parser = new RSPQLParser();
@@ -101,6 +103,10 @@ export class HeimdallInstantiator {
             }
             else if (query_type === 'live') {
                 console.log(`The query type is live.`);
+                // Install output routing before registering the remote
+                // notification subscription: an immediately delivered event
+                // must not precede this query's RStream listener.
+                await this.subscribeRStream();
                 for (const stream of this.stream_array) {
                     this.logger.info({ query_hashed }, `stream_credentials_retrieved`);
                     if (!this.sharedStreamRegistry) throw new Error('Live processing requires a SharedStreamRegistry');
@@ -108,7 +114,6 @@ export class HeimdallInstantiator {
                     if (!rdfStream) throw new Error(`RSP engine has no RDF stream for ${stream}`);
                     await this.sharedStreamRegistry.attach(stream, this.hash_string, rdfStream);
                 }
-                await this.subscribeRStream();
                 return true;
             }
             else {
@@ -134,7 +139,7 @@ export class HeimdallInstantiator {
                 console.log(`The connection with the websocket server has been established.`);
                 resolve();
             });
-            this.client.connect('ws://localhost:8080/', HEIMDALL_WEBSOCKET_PROTOCOL);
+            this.client.connect(resolveHeimdallWebSocketUrl(HEIMDALL_SETUP), HEIMDALL_WEBSOCKET_PROTOCOL);
         });
         {
             console.log(`The connection with the server has been established. ${this.connection.connected}`);
@@ -228,7 +233,7 @@ export class HeimdallInstantiator {
             this.connection.sendUTF(message);
         }
         else {
-            this.connect_with_server('ws://localhost:8080/').then(() => {
+            this.connect_with_server(resolveHeimdallWebSocketUrl(HEIMDALL_SETUP)).then(() => {
                 console.log(`The connection with the websocket server was not established. It is now established.`);
             });
         }

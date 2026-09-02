@@ -105,7 +105,8 @@ export class WebSocketHandler {
                             const { ldes_query, query_hashed, width } = await this.preprocess_query(ws_message.query, ws_message.client_id);
                             this.logger.info({ query_id: query_hashed }, `query_preprocessed`);
                             this.set_connections(query_hashed, connection);
-                            await this.process_query(ldes_query, width, query_type, this.event_emitter, ws_message.client_id);
+                            const executionId = await this.process_query(ldes_query, width, query_type, this.event_emitter, ws_message.client_id);
+                            if (executionId && executionId !== query_hashed) this.move_connection(query_hashed, executionId, connection);
                             // QueryHandler has awaited RSP construction, every stream
                             // handler, every Solid subscription, and result routing.
                             connection.send(JSON.stringify({ type: 'query_ready', query_id: createHash('sha256').update(ldes_query).digest('hex'), client_id: ws_message.client_id }));
@@ -302,7 +303,7 @@ export class WebSocketHandler {
      * @param {EventEmitter} event_emitter - The event emitter object.
      * @memberof WebSocketHandler
      */
-    public process_query(query: string, width: number, query_type: string, event_emitter: EventEmitter, client_id?: string): Promise<void> | void {
+    public process_query(query: string, width: number, query_type: string, event_emitter: EventEmitter, client_id?: string): Promise<string> {
         return QueryHandler.handle_ws_query(query, width, this.query_registry, this.logger, this.connections, query_type, event_emitter, client_id);
     }
 
@@ -362,6 +363,13 @@ export class WebSocketHandler {
             }
         }
         this.logger.info({ query_id: query_hashed }, `websocket_connection_set_for_query`);
+    }
+
+    private move_connection(fromQueryId: string, toQueryId: string, connection: WebSocket): void {
+        const fromConnections = this.connections.get(fromQueryId) || [];
+        this.connections.set(fromQueryId, fromConnections.filter(candidate => candidate !== connection));
+        if (this.connections.get(fromQueryId)?.length === 0) this.connections.delete(fromQueryId);
+        this.set_connections(toQueryId, connection);
     }
 
     /**

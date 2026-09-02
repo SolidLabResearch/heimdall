@@ -73,13 +73,8 @@ export class HTTPServer {
                     const webhook_notification_data = JSON.parse(body);
                     if (webhook_notification_data.type === 'Add') {
                         this.logger.info({}, 'webhook_notification_received');
-                        // the target is where a new notification is added into the ldes stream.
-                        // LDES stream can be found by stripping the inbox from the target with the slash semantics as described in the Solid Protocol.
-                        // Link : https://solidproject.org/TR/protocol#uri-slash-semantics
-                        const inbox_where_event_is_added = webhook_notification_data.target;
-                        const ldes_stream_where_event_is_added = inbox_where_event_is_added.replace(/\/\d+\/$/, '/');
                         const added_event_location = webhook_notification_data.object;
-                        await this.shared_stream_registry.handleNotification(ldes_stream_where_event_is_added, added_event_location);
+                        await this.shared_stream_registry.handleNotificationTarget(webhook_notification_data.target, added_event_location);
                         this.logger.info({}, 'webhook_notification_processed');
                     }
                 });

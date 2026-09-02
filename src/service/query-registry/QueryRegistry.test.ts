@@ -4,6 +4,7 @@ import { MetricWriter } from '../../evaluation/MetricWriter';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { hash_string_md5 } from '../../utils/Util';
 
 describe('QueryRegistry', () => {
     let query_registry: QueryRegistry;
@@ -167,5 +168,14 @@ describe('QueryRegistry', () => {
         const metrics = fs.readFileSync(path.join(directory, 'initialization.csv'), 'utf8');
         expect(metrics).toContain('query_registration');
         expect(metrics).toContain('query_reuse_check');
+    });
+
+    it('maps a syntactically different equivalent query to the first execution ID', async () => {
+        const registry = new QueryRegistry();
+        const first = rspql_query;
+        const equivalent = `${rspql_query}\n`;
+        expect(await registry.add_query_in_registry(first, logger)).toBe(true);
+        expect(await registry.add_query_in_registry(equivalent, logger)).toBe(false);
+        expect((registry as any).query_hash_map.get(hash_string_md5(equivalent))).toBe(hash_string_md5(first));
     });
 });

@@ -16,7 +16,7 @@ import { TREE } from "@treecg/ldes-snapshot";
 import { Session } from "@inrupt/solid-client-authn-node";
 import { create_subscription, extract_ldp_inbox, extract_subscription_server } from "../../utils/notifications/Util";
 import * as HEIMDALL_SETUP from '../../config/heimdall_setup.json';
-import { resolveHeimdallSetupConfig } from "../../config/heimdallConfig";
+import { resolveHeimdallSetupConfig, resolveHeimdallWebSocketUrl } from "../../config/heimdallConfig";
 import { HEIMDALL_WEBSOCKET_PROTOCOL } from "../../server/websocketProtocols";
 /**
  * Class for streaming the events from the Solid Pod to the RSP Engine by reading the events and converting the events stored into files into a stream.
@@ -64,7 +64,7 @@ export class DecentralizedFileStreamer {
         this.comunica_engine = new QueryEngine();
         this.observation_array = [];
         this.subscribing_latest_events(this.stream_name);
-        DecentralizedFileStreamer.connect_with_server('ws://localhost:8080/').then(() => {
+        DecentralizedFileStreamer.connect_with_server(resolveHeimdallWebSocketUrl(HEIMDALL_SETUP)).then(() => {
             console.log(`The connection with the websocket server was established.`);
         });
         this.initiateDecentralizedFileStreamer().then(() => {
@@ -428,7 +428,7 @@ export class DecentralizedFileStreamer {
             this.connection.sendUTF(message);
         }
         else {
-            this.connect_with_server('ws://localhost:8080/').then(() => {
+            this.connect_with_server(resolveHeimdallWebSocketUrl(HEIMDALL_SETUP)).then(() => {
                 console.log(`The connection with the websocket server was not established. It is now established.`);
             });
         }

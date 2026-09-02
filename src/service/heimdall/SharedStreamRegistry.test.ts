@@ -11,6 +11,7 @@ describe('SharedStreamRegistry', () => {
     const fakeRdfStream = () => ({ add: jest.fn() } as any);
     const makeRegistry = (overrides: Record<string, any> = {}) => {
         const dependencies = {
+            resolveInbox: jest.fn().mockImplementation(async (streamUrl: string) => `${streamUrl}inbox/`),
             createSubscription: jest.fn().mockResolvedValue('subscription'),
             readBucketStrategy: jest.fn().mockResolvedValue('http://example.test/time'),
             fetchEvent: jest.fn().mockResolvedValue('event'),
@@ -76,7 +77,7 @@ describe('SharedStreamRegistry', () => {
         const creation = new Promise<void>((resolve) => { resolveCreation = resolve; });
         const { registry, dependencies } = makeRegistry({ createSubscription: jest.fn().mockReturnValue(creation) });
         const attachments = Array.from({ length: 5 }, (_, index) => registry.attach(streams[0], `Q${index}`, fakeRdfStream()));
-        await Promise.resolve();
+        await new Promise<void>(resolve => setImmediate(resolve));
         expect(dependencies.createSubscription).toHaveBeenCalledTimes(1);
         resolveCreation!();
         await Promise.all(attachments);
@@ -112,6 +113,15 @@ describe('SharedStreamRegistry', () => {
         await registry.handleNotification(streams[0], 'http://example.test/event-1');
         expect(dependencies.fetchEvent).toHaveBeenCalledTimes(2);
         expect(consumer.add).toHaveBeenCalledTimes(2);
+    });
+
+    it('routes an inbox-member notification to the physical stream that owns its inbox', async () => {
+        const { registry, dependencies } = makeRegistry();
+        const consumer = fakeRdfStream();
+        await registry.attach(streams[0], 'Q1', consumer);
+        await registry.handleNotificationTarget(`${streams[0]}inbox/123/`, 'http://example.test/event-1');
+        expect(dependencies.fetchEvent).toHaveBeenCalledTimes(1);
+        expect(consumer.add).toHaveBeenCalledTimes(1);
     });
 
     it('records physical subscriptions separately from execution memberships', async () => {

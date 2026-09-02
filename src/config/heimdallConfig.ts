@@ -49,6 +49,16 @@ export function resolveHeimdallSetupConfig(config: HeimdallSetupConfig, environm
 }
 
 /**
+ * Resolve the service's internal WebSocket endpoint from the same portable
+ * configuration used for notification callbacks.
+ * @param {HeimdallSetupConfig} config - The raw setup configuration object.
+ * @returns {string} The configured Heimdall WebSocket URL.
+ */
+export function resolveHeimdallWebSocketUrl(config: HeimdallSetupConfig): string {
+    return resolveHeimdallSetupConfig(config).heimdallWsServerUrl;
+}
+
+/**
  * Resolve Heimdall runtime settings from new or legacy configuration keys.
  * @param {HeimdallRuntimeConfig} config - The raw runtime configuration object.
  * @returns {ResolvedHeimdallRuntimeConfig} The normalized runtime configuration.

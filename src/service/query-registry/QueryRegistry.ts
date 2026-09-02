@@ -7,6 +7,8 @@ import { hash_string_md5 } from "../../utils/Util";
 import { HEIMDALL_WEBSOCKET_PROTOCOL } from "../../server/websocketProtocols";
 import { MetricWriter } from '../../evaluation/MetricWriter';
 import { SharedStreamRegistry } from '../heimdall/SharedStreamRegistry';
+import * as HEIMDALL_SETUP from '../../config/heimdall_setup.json';
+import { resolveHeimdallWebSocketUrl } from '../../config/heimdallConfig';
 const websocketConnection = require('websocket').connection;
 const WebSocketClient = require('websocket').client;
 /**
@@ -63,7 +65,8 @@ export class QueryRegistry {
      * @returns {Promise<boolean>} - Returns true if the query is unique, otherwise false.
      * @memberof QueryRegistry
      */
-    async register_query(rspql_query: string, query_registry: QueryRegistry, from_timestamp: number, to_timestamp: number, logger: any, query_type: any, event_emitter: any, client_id?: string): Promise<{ unique: boolean, ready: Promise<void> }> {
+    async register_query(rspql_query: string, query_registry: QueryRegistry, from_timestamp: number, to_timestamp: number, logger: any, query_type: any, event_emitter: any, client_id?: string): Promise<{ unique: boolean, ready: Promise<void>, executionId: string }> {
+        const queryId = hash_string_md5(rspql_query);
         if (await query_registry.add_query_in_registry(rspql_query, logger)) {
             /*
             The query is not already executing or computed ; it is unique. So, just compute it and send it via the websocket.
@@ -71,9 +74,9 @@ export class QueryRegistry {
             logger.info({}, 'query_is_unique');
             const processor = new HeimdallInstantiator(rspql_query, from_timestamp, to_timestamp, logger, query_type, event_emitter, '', this.metric_writer, client_id, this.sharedStreamRegistry);
             const ready = processor.ready();
-            this.ready_queries.set(hash_string_md5(rspql_query), ready);
-            this.metric_writer.record('initialization.csv', 'shared_query_instance_created', { query_id: hash_string_md5(rspql_query), client_id });
-            return { unique: true, ready };
+            this.ready_queries.set(queryId, ready);
+            this.metric_writer.record('initialization.csv', 'shared_query_instance_created', { query_id: queryId, client_id });
+            return { unique: true, ready, executionId: queryId };
         }
         else {
             /*
@@ -81,10 +84,12 @@ export class QueryRegistry {
             */
             logger.info({}, 'query_is_not_unique');
             this.logger.debug(`The query you have registered is already executing.`);
-            const ready = this.ready_queries.get(hash_string_md5(rspql_query));
-            if (!ready) throw new Error(`Reused query has no readiness promise: ${hash_string_md5(rspql_query)}`);
-            this.metric_writer.record('initialization.csv', 'shared_query_instance_reused', { query_id: hash_string_md5(rspql_query), client_id });
-            return { unique: false, ready };
+            const executionId = this.query_hash_map.get(queryId);
+            if (!executionId) throw new Error(`Reused query has no canonical execution ID: ${queryId}`);
+            const ready = this.ready_queries.get(executionId);
+            if (!ready) throw new Error(`Reused query has no readiness promise: ${executionId}`);
+            this.metric_writer.record('initialization.csv', 'shared_query_instance_reused', { query_id: executionId, client_id });
+            return { unique: false, ready, executionId };
         }
 
     }
@@ -104,18 +109,20 @@ export class QueryRegistry {
         this.metric_writer.timed('initialization.csv', 'query_registration', { query_id }, registration_start_epoch_ms, registration_start_monotonic_ns);
         const reuse_start_epoch_ms = Date.now();
         const reuse_start_monotonic_ns = process.hrtime.bigint();
-        const duplicate = this.checkUniqueQuery(rspql_query, logger);
+        const equivalentQuery = this.findEquivalentQuery(rspql_query, true);
         this.metric_writer.timed('initialization.csv', 'query_reuse_check', { query_id }, reuse_start_epoch_ms, reuse_start_monotonic_ns);
-        if (duplicate) {
+        if (equivalentQuery !== undefined) {
             /*
             The query you have registered is already executing.
             */
+            this.query_hash_map.set(query_id, hash_string_md5(equivalentQuery));
             return false;
         }
         else {
             /*
             The query you have registered is not already executing.
             */
+            this.query_hash_map.set(query_id, query_id);
             this.add_to_executing_queries(rspql_query);
             return true;
         }
@@ -142,16 +149,23 @@ export class QueryRegistry {
         const query_hashed = hash_string_md5(query);
         const registered_queries = this.get_registered_queries();
         const array_length = registered_queries.get_length();
-        if (array_length > 1) {
-            for (let i = 0; i < array_length; i++) {
-                return is_equivalent(query, registered_queries.get_item(i));
-            }
-        }
+        const equivalent = this.findEquivalentQuery(query);
         if (array_length === 0) {
             logger.info({ query_hashed }, 'array_length_is_zero');
         }
         logger.info({ query_hashed }, 'isomorphic_check_done')
-        return false;
+        return equivalent !== undefined;
+    }
+
+    private findEquivalentQuery(query: string, excludeLast = false): string | undefined {
+        const registeredQueries = this.get_registered_queries();
+        const arrayLength = registeredQueries.get_length();
+        const candidateCount = excludeLast ? arrayLength - 1 : arrayLength;
+        for (let i = 0; i < candidateCount; i++) {
+            const candidate = registeredQueries.get_item(i);
+            if (is_equivalent(query, candidate)) return candidate;
+        }
+        return undefined;
     }
 
     /**
@@ -212,7 +226,7 @@ export class QueryRegistry {
             this.connection.sendUTF(message);
         }
         else {
-            this.connect_with_server('ws://localhost:8080').then(() => {
+            this.connect_with_server(resolveHeimdallWebSocketUrl(HEIMDALL_SETUP)).then(() => {
                 console.log(`The connection with the websocket server was not established. It is now established.`);
             });
         }

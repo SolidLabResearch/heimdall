@@ -82,7 +82,7 @@ describe('WebSocketHandler compatibility', () => {
             query_hashed: 'query-hash',
             width: 1000,
         });
-        const processQuery = jest.spyOn(handler, 'process_query').mockImplementation(() => undefined);
+        const processQuery = jest.spyOn(handler, 'process_query').mockResolvedValue('query-hash');
         const legacyAuthentication = jest.spyOn(handler, 'if_authenticated').mockResolvedValue(false);
         const legacyAuthorization = jest.spyOn(handler, 'if_authorized').mockResolvedValue(true);
 
@@ -98,6 +98,25 @@ describe('WebSocketHandler compatibility', () => {
         expect(fetchSpy).not.toHaveBeenCalled();
     });
 
+    it('routes an equivalent registration connection to its canonical execution', async () => {
+        const { handler, websocketServer } = createEvaluationHandler();
+        jest.spyOn(handler, 'preprocess_query').mockResolvedValue({
+            ldes_query: 'SELECT * WHERE { ?s ?p ?o }',
+            query_hashed: 'submitted-query',
+            width: 1000,
+        });
+        jest.spyOn(handler, 'process_query').mockResolvedValue('canonical-query');
+
+        await sendEvaluationQuery(handler, websocketServer, {
+            query: 'SELECT * WHERE { ?s ?p ?o }',
+            type: 'live',
+            client_id: 'client-a',
+        });
+
+        expect((handler as any).connections.has('submitted-query')).toBe(false);
+        expect((handler as any).connections.get('canonical-query')).toHaveLength(1);
+    });
+
     it('delivers evaluation results over WebSocket without persistence or authentication metrics', async () => {
         const { handler, websocketServer } = createEvaluationHandler();
         jest.spyOn(handler, 'preprocess_query').mockResolvedValue({
@@ -105,7 +124,7 @@ describe('WebSocketHandler compatibility', () => {
             query_hashed: 'query-hash',
             width: 1000,
         });
-        const processQuery = jest.spyOn(handler, 'process_query').mockImplementation(() => undefined);
+        const processQuery = jest.spyOn(handler, 'process_query').mockResolvedValue('query-hash');
         const legacyAuthentication = jest.spyOn(handler, 'if_authenticated').mockResolvedValue(true);
         const legacyAuthorization = jest.spyOn(handler, 'if_authorized').mockResolvedValue(false);
 

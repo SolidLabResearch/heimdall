@@ -10,7 +10,8 @@ const DF = new DataFactory();
 
 /* eslint-disable no-unused-vars -- ESLint does not distinguish TypeScript interface parameter names. */
 export interface SharedStreamRegistryDependencies {
-    createSubscription(streamUrl: string): Promise<unknown>;
+    resolveInbox(streamUrl: string): Promise<string>;
+    createSubscription(streamUrl: string, inboxUrl: string): Promise<unknown>;
     readBucketStrategy(streamUrl: string): Promise<string>;
     fetchEvent(eventUrl: string): Promise<string>;
     parseEvent(turtle: string): Promise<any>;
@@ -22,6 +23,7 @@ interface SharedStreamState {
     consumers: Map<string, RDFStream>;
     creation?: Promise<void>;
     bucketStrategy?: string;
+    inboxUrl?: string;
     /** The helper currently returns response text, not a deletion-capable URL. */
     subscriptionHandle?: unknown;
 }
@@ -44,6 +46,11 @@ export class SharedStreamRegistry {
         this.logger = logger;
         this.metricWriter = metricWriter;
         this.dependencies = {
+            resolveInbox: async (streamUrl) => {
+                const inbox = await extract_ldp_inbox(streamUrl);
+                if (!inbox) throw new Error(`No LDP inbox found for stream ${streamUrl}`);
+                return inbox;
+            },
             createSubscription: this.createPhysicalSubscription.bind(this),
             readBucketStrategy: this.readBucketStrategy.bind(this),
             fetchEvent: this.fetchEvent.bind(this),
@@ -132,13 +139,27 @@ export class SharedStreamRegistry {
         }
     }
 
+    /** Route a webhook target (an inbox member) to its registered LDES stream. */
+    public async handleNotificationTarget(targetUrl: string, eventUrl: string): Promise<void> {
+        const state = Array.from(this.streams.values()).find(candidate => candidate.inboxUrl && targetUrl.startsWith(candidate.inboxUrl));
+        if (!state) {
+            this.logger.warn?.({ target_id: targetUrl, event_id: eventUrl }, 'notification_for_unregistered_inbox');
+            return;
+        }
+        await this.handleNotification(state.streamUrl, eventUrl);
+    }
+
     private async initialize(key: string, state: SharedStreamState): Promise<void> {
         try {
             // Resolve metadata before mutating the remote subscription server;
             // a metadata failure therefore leaves no remote side effect.
-            const bucketStrategy = await this.dependencies.readBucketStrategy(key);
-            const subscriptionHandle = await this.dependencies.createSubscription(key);
+            const [bucketStrategy, inboxUrl] = await Promise.all([
+                this.dependencies.readBucketStrategy(key),
+                this.dependencies.resolveInbox(key),
+            ]);
+            const subscriptionHandle = await this.dependencies.createSubscription(key, inboxUrl);
             state.bucketStrategy = bucketStrategy;
+            state.inboxUrl = inboxUrl;
             state.subscriptionHandle = subscriptionHandle;
             this.metricWriter.record('initialization.csv', 'physical_stream_subscription_created', { stream_id: key });
             this.logger.info({}, 'physical_stream_subscription_created');
@@ -150,9 +171,7 @@ export class SharedStreamRegistry {
         }
     }
 
-    private async createPhysicalSubscription(streamUrl: string): Promise<unknown> {
-        const inbox = await extract_ldp_inbox(streamUrl);
-        if (!inbox) throw new Error(`No LDP inbox found for stream ${streamUrl}`);
+    private async createPhysicalSubscription(streamUrl: string, inbox: string): Promise<unknown> {
         const server = await extract_subscription_server(inbox);
         if (!server) throw new Error(`No subscription server found for stream ${streamUrl}`);
         return create_subscription(server.location, inbox);
