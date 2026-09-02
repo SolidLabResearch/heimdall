@@ -58,7 +58,7 @@ Different query executions can read the same canonical LDES stream while remaini
 
 - Node.js and npm. `package.json` does not currently declare an `engines` version range.
 - A Solid / LDES-in-LDP deployment for the streams being queried. For discovery, the Pod must expose appropriate LDES metadata through its Type Index. Live acquisition also expects the Solid notification and LDP metadata endpoints used by the stream.
-- RSP-JS, installed as the exact public Git revision `56e773d8416f978d82a8288802532cabdf8ffef6` by npm.
+- RSP-JS, installed as the exact public Git revision `db30dea9c2e9182379d920423c230566512f629c` by npm.
 
 ## Installation
 
@@ -69,7 +69,7 @@ npm install
 npm run build
 ```
 
-Current maintained code pins RSP-JS to `56e773d8416f978d82a8288802532cabdf8ffef6`. A manually prepared sibling `../RSP-JS` checkout is not required. This is different from the frozen Sensors snapshot, which retains its historical dependency arrangement.
+Current maintained code pins RSP-JS to `db30dea9c2e9182379d920423c230566512f629c`. A manually prepared sibling `../RSP-JS` checkout is not required. This is different from the frozen Sensors snapshot, which retains its historical dependency arrangement.
 
 ## Running Heimdall
 
@@ -80,10 +80,6 @@ npm run start-aggregation
 ```
 
 The command starts the HTTP/WebSocket service on port 8080 by default. When the service is running, `GET /health` returns `{ "status": "ok" }`.
-
-### Known limitations
-
-`npm run build`, TypeScript checking, and the test suite pass. A fresh live-start smoke test currently fails before Heimdall initializes because the pinned RSP-JS build lacks a runtime configuration module. The same failure occurs on current `master`; it is not introduced by PR #51 and will be addressed separately. Therefore, do not treat a successful build as proof that a fresh runtime startup currently completes.
 
 ## Configuration
 
@@ -174,6 +170,8 @@ On PR #51, the build and TypeScript check pass, and 104 tests pass. TypeScript l
 The maintained implementation is `master`. The exact Heimdall source snapshot used for the Sensors 2026 evaluation is the annotated `sensors-2026-evaluation` tag, which dereferences to `c663e6b3a2be39688dae7682576de32fb50a8d8c`.
 
 The tag preserves Heimdall's historical source state, not a complete standalone experiment. Full reproduction also requires the corresponding RSP-JS setup, Solid deployment, workload and data, experimental configuration, and infrastructure. Consult [EVALUATION-METRICS.md](./EVALUATION-METRICS.md) for the metric contract and [EVALUATION-DEPLOYMENT-AUDIT.md](./EVALUATION-DEPLOYMENT-AUDIT.md) for deployment-path distinctions.
+
+`master` uses the corrected RSP-JS runtime dependency above. The Sensors tag remains the exact historical software snapshot and retains its historical dependency setup.
 
 Do not use historical commits or the Sensors tag as a credential source.
 
