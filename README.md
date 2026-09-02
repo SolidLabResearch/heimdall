@@ -136,13 +136,13 @@ Send a JSON message containing a query, a processing type, and a client identifi
 
 ## Credentials
 
-### Normal live operation
+Heimdall can access both public and protected Solid streams. Authentication is a property of the source Pod or stream deployment, not of whether a query is `live` or `historical+live`.
 
-Normal `live` operation, including the Sensors-style live evaluation path, does not load source-Pod client credentials.
+For a protected source, copy [source-pod-credentials.example.json](./config/source-pod-credentials.example.json) to `config/source-pod-credentials.local.json`, fill it locally, and keep it untracked. Alternatively, set `HEIMDALL_SOURCE_POD_CREDENTIALS_FILE` to a local credential-file path. Each key is a source stream URL or a Pod URL prefix; matching is restricted to the same origin and path boundary, and the most-specific matching entry is selected. Same-origin resources discovered from a configured stream can reuse that source session; cross-origin notification resources require their own matching configuration. The entry contains a CSS client-credential `id`, `secret`, and `idp`.
 
-### historical+live
+When configured, Heimdall reuses the resulting authenticated session for relevant source operations: Type Index lookup, LDES metadata and historical retrieval, notification inbox and subscription-server discovery, notification subscription creation, and notification-event retrieval. When no matching source credentials are configured, these operations use ordinary unauthenticated HTTP, so public streams do not need a credentials file. A protected resource with no usable credentials reports the underlying authorization failure; an invalid configured entry reports a configuration error.
 
-`historical+live` requires a client-credential entry for each source stream. Copy [source-pod-credentials.example.json](./config/source-pod-credentials.example.json) to `config/source-pod-credentials.local.json`, fill it locally, and keep it untracked. Alternatively, set `HEIMDALL_SOURCE_POD_CREDENTIALS_FILE` to a local credential-file path.
+This does not assert that the Sensors evaluation used authentication; its deployment-specific authorization setup is not established by this repository.
 
 ### Legacy aggregation-Pod functionality
 

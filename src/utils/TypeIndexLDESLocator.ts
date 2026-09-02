@@ -1,6 +1,5 @@
-const ld_fetch = require('ldfetch');
-const ldfetch = new ld_fetch({});
 const N3 = require('n3');
+import { SourcePodAccess } from '../service/heimdall/SourcePodAccess';
 
 /**
  * Class for fetching the LDES stream URL from the type index.
@@ -12,14 +11,16 @@ export class TypeIndexLDESLocator {
     public readonly pod_url: string;
     public readonly private_type_index: string;
     public readonly public_type_index: string;
+    private readonly sourcePodAccess: SourcePodAccess;
 
     /**
      * Creates an instance of TypeIndexLDESLocator.
      * @param {string} pod_url - The URL of the pod.
      * @memberof TypeIndexLDESLocator
      */
-    constructor(pod_url: string) {
+    constructor(pod_url: string, sourcePodAccess: SourcePodAccess = new SourcePodAccess()) {
         this.pod_url = pod_url;
+        this.sourcePodAccess = sourcePodAccess;
         this.pod_webid = `${this.pod_url}/profile/card#me`;
         this.public_type_index = `${this.pod_url}/settings/publicTypeIndex`;
         this.private_type_index = `${this.pod_url}/settings/privateTypeIndex`;
@@ -33,8 +34,9 @@ export class TypeIndexLDESLocator {
      */
     public async getLDESStreamURL(metric: string): Promise<string | null> {
         try {
-            const response = await ldfetch.get(this.public_type_index);
-            const store = new N3.Store(response.triples);
+            const response = await (await this.sourcePodAccess.fetchFor(this.public_type_index))(this.public_type_index, { headers: { Accept: 'text/turtle' } });
+            if (!response.ok) throw new Error(`Type Index request failed with HTTP ${response.status}`);
+            const store = new N3.Store(new N3.Parser({ baseIRI: this.public_type_index }).parse(await response.text()));
             const quads = store.getQuads();
             const relevant_ldes_metric = metric;
             for (const quad of quads) {

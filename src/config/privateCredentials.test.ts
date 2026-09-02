@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { aggregationPodAccountFile, loadAggregationPodCredentials, loadSourcePodCredentials } from './privateCredentials';
+import { aggregationPodAccountFile, loadAggregationPodCredentials, loadOptionalSourcePodCredentials, loadSourcePodCredentials } from './privateCredentials';
 
 describe('private credential configuration', () => {
     const previousSource = process.env.HEIMDALL_SOURCE_POD_CREDENTIALS_FILE;
@@ -35,5 +35,19 @@ describe('private credential configuration', () => {
     it('fails clearly when historical source credentials are not configured', () => {
         delete process.env.HEIMDALL_SOURCE_POD_CREDENTIALS_FILE;
         expect(() => loadSourcePodCredentials()).toThrow('Missing source-Pod credentials');
+    });
+
+    it('treats absent source credentials as an optional public-stream configuration', () => {
+        delete process.env.HEIMDALL_SOURCE_POD_CREDENTIALS_FILE;
+        expect(loadOptionalSourcePodCredentials()).toEqual({});
+    });
+
+    it('fails clearly for an explicitly missing or malformed source credential file', () => {
+        process.env.HEIMDALL_SOURCE_POD_CREDENTIALS_FILE = path.join(os.tmpdir(), 'does-not-exist-heimdall-source.json');
+        expect(() => loadOptionalSourcePodCredentials()).toThrow('Missing source-Pod credentials file');
+        const malformedPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'heimdall-credentials-')), 'malformed.json');
+        fs.writeFileSync(malformedPath, '{not-json');
+        process.env.HEIMDALL_SOURCE_POD_CREDENTIALS_FILE = malformedPath;
+        expect(() => loadOptionalSourcePodCredentials()).toThrow('Unable to load source-Pod credentials');
     });
 });

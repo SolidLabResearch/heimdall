@@ -16,6 +16,24 @@ export function loadSourcePodCredentials(): SourcePodCredentials {
     return loadJson('HEIMDALL_SOURCE_POD_CREDENTIALS_FILE', 'config/source-pod-credentials.local.json', 'source-Pod credentials');
 }
 
+/**
+ * Source-Pod authentication is optional: public streams must not require a
+ * local credential file. Invalid configured files still fail loudly.
+ */
+export function loadOptionalSourcePodCredentials(): SourcePodCredentials {
+    const configuredPath = process.env.HEIMDALL_SOURCE_POD_CREDENTIALS_FILE;
+    const filePath = configuredPath || path.resolve(process.cwd(), 'config/source-pod-credentials.local.json');
+    if (!fs.existsSync(filePath)) {
+        if (configuredPath) throw new Error(`Missing source-Pod credentials file configured by HEIMDALL_SOURCE_POD_CREDENTIALS_FILE: ${filePath}`);
+        return {};
+    }
+    try {
+        return JSON.parse(fs.readFileSync(filePath, 'utf8')) as SourcePodCredentials;
+    } catch (error) {
+        throw new Error(`Unable to load source-Pod credentials from ${filePath}: ${(error as Error).message}`);
+    }
+}
+
 export function loadAggregationPodCredentials(): AggregationPodCredentials {
     return loadJson('HEIMDALL_AGGREGATION_POD_CREDENTIALS_FILE', 'config/aggregation-pod-credentials.local.json', 'aggregation-Pod credentials');
 }

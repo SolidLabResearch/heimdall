@@ -19,6 +19,7 @@ import { MetricWriter } from '../evaluation/MetricWriter';
 import { createHash } from 'crypto';
 import { SharedStreamRegistry } from '../service/heimdall/SharedStreamRegistry';
 import { loadAggregationPodCredentials } from '../config/privateCredentials';
+import { SourcePodAccess } from '../service/heimdall/SourcePodAccess';
 
 /**
  * Class for handling the Websocket server.
@@ -37,6 +38,7 @@ export class WebSocketHandler {
     public logger: any;
     private query_registry: QueryRegistry;
     private readonly metric_writer: MetricWriter;
+    private readonly sourcePodAccess: SourcePodAccess;
     private aggregationPublisherRegistered = false;
     /**
      * Creates an instance of WebSocketHandler.
@@ -55,6 +57,7 @@ export class WebSocketHandler {
         this.connections = new Map<string, WebSocket[]>();
         this.parser = new RSPQLParser();
         this.metric_writer = metric_writer;
+        this.sourcePodAccess = sharedStreamRegistry?.sourcePodAccess || new SourcePodAccess();
         this.query_registry = new QueryRegistry(metric_writer, sharedStreamRegistry);
         this.n3_parser = new Parser({ format: 'N-Triples' });
         this.logger.info({}, 'websocket_handler_initialized');
@@ -333,7 +336,7 @@ export class WebSocketHandler {
         const interest_metric = new AggregationFocusExtractor(query).extract_focus();
         const start_epoch_ms = Date.now();
         const start_monotonic_ns = process.hrtime.bigint();
-        const streams = await find_relevant_streams(pod_url, interest_metric);
+        const streams = await find_relevant_streams(pod_url, interest_metric, undefined, this.sourcePodAccess);
         const ldes_stream = streams[0];
         if (ldes_stream === undefined) {
             throw new Error(`No relevant LDES stream found for Pod source ${pod_url}`);

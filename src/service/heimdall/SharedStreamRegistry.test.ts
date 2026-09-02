@@ -1,5 +1,6 @@
 import { SharedStreamRegistry } from './SharedStreamRegistry';
 import { MetricWriter } from '../../evaluation/MetricWriter';
+import { SourcePodAccess } from './SourcePodAccess';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -82,6 +83,41 @@ describe('SharedStreamRegistry', () => {
         resolveCreation!();
         await Promise.all(attachments);
         expect(registry.consumerCount(streams[0])).toBe(5);
+    });
+
+    it('keeps one protected physical acquisition while its source session is reused', async () => {
+        const authenticatedFetch = jest.fn();
+        const createSession = jest.fn().mockResolvedValue({ fetch: authenticatedFetch });
+        const access = new SourcePodAccess({
+            'http://example.test/': { id: 'test-id', secret: 'test-secret', idp: 'https://issuer.example/' },
+        }, createSession);
+        await access.fetchFor(streams[0]);
+        const { dependencies } = makeRegistry();
+        const registry = new SharedStreamRegistry(logger, undefined, dependencies, access);
+        await Promise.all(['Q1', 'Q2'].map((id) => registry.attach(streams[0], id, fakeRdfStream())));
+        expect(dependencies.createSubscription).toHaveBeenCalledTimes(1);
+        expect(createSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses one authenticated source fetch for protected live notification discovery and creation', async () => {
+        const authenticatedFetch = jest.fn()
+            .mockResolvedValueOnce({ text: jest.fn().mockResolvedValue(`<http://example.test/A/> <http://www.w3.org/ns/ldp#inbox> <inbox/> .`) })
+            .mockResolvedValueOnce({ headers: new Headers({ link: '<http://example.test/.well-known/solid>; rel="http://www.w3.org/ns/solid/terms#storageDescription"' }) })
+            .mockResolvedValueOnce({ text: jest.fn().mockResolvedValue(`
+                <http://example.test/> <http://www.w3.org/ns/solid/notifications#subscription> <http://example.test/subscribe> .
+                <http://example.test/subscribe> <http://www.w3.org/ns/solid/notifications#channelType> <http://www.w3.org/ns/solid/notifications#WebhookChannel2023> .
+            `) })
+            .mockResolvedValueOnce({ ok: true, text: jest.fn().mockResolvedValue('subscription') });
+        const createSession = jest.fn().mockResolvedValue({ fetch: authenticatedFetch });
+        const access = new SourcePodAccess({
+            'http://example.test/': { id: 'test-id', secret: 'test-secret', idp: 'https://issuer.example/' },
+        }, createSession);
+        const registry = new SharedStreamRegistry(logger, undefined, { readBucketStrategy: jest.fn().mockResolvedValue('http://example.test/time') }, access);
+
+        await registry.attach(streams[0], 'Q1', fakeRdfStream());
+        expect(createSession).toHaveBeenCalledTimes(1);
+        expect(authenticatedFetch).toHaveBeenCalledTimes(4);
+        expect(authenticatedFetch).toHaveBeenNthCalledWith(4, 'http://example.test/subscribe', expect.objectContaining({ method: 'POST' }));
     });
 
     it('rolls back a failed creation so a later attach retries', async () => {

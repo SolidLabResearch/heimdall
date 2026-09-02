@@ -8,13 +8,12 @@ const websocketConnection = require('websocket').connection;
 const WebSocketClient = require('websocket').client;
 import { Quad } from "n3";
 import { QuadWithID } from "../../utils/Types";
-import { session_with_credentials } from "../../utils/authentication/CSSAuthentication";
 import { readMembersRateLimited } from "../../utils/ldes-in-ldp/EventSource";
 import { RateLimitedLDPCommunication } from "rate-limited-ldp-communication";
 import { hash_string_md5 } from "../../utils/Util";
 import { TREE } from "@treecg/ldes-snapshot";
-import { Session } from "@inrupt/solid-client-authn-node";
 import { create_subscription, extract_ldp_inbox, extract_subscription_server } from "../../utils/notifications/Util";
+import { SourcePodAccess } from './SourcePodAccess';
 import * as HEIMDALL_SETUP from '../../config/heimdall_setup.json';
 import { resolveHeimdallSetupConfig, resolveHeimdallWebSocketUrl } from "../../config/heimdallConfig";
 import { HEIMDALL_WEBSOCKET_PROTOCOL } from "../../server/websocketProtocols";
@@ -32,7 +31,7 @@ export class DecentralizedFileStreamer {
     public ldes!: LDESinLDP;
     public comunica_engine: QueryEngine;
     public communication: Promise<SolidCommunication | LDPCommunication | RateLimitedLDPCommunication>;
-    public session: any;
+    private readonly sourcePodAccess: SourcePodAccess;
     public observation_array: any[];
     public query: string
     public query_hash: string;
@@ -43,7 +42,7 @@ export class DecentralizedFileStreamer {
     /**
      * Creates an instance of DecentralizedFileStreamer.
      * @param {string} ldes_stream - The LDES stream URL.
-     * @param {session_credentials} session_credentials - The credentials of the Solid Pod.
+     * @param {SourcePodAccess} sourcePodAccess - Shared optional authenticated access for the source Pod.
      * @param {Date} from_date - The start date of the events to be read from the Solid Pod.
      * @param {Date} to_date - The end date of the events to be read from the Solid Pod.
      * @param {RSPEngine} rsp_engine - The RSP Engine.
@@ -51,9 +50,10 @@ export class DecentralizedFileStreamer {
      * @param {*} logger - The logger object.
      * @memberof DecentralizedFileStreamer
      */
-    constructor(ldes_stream: string, session_credentials: session_credentials, from_date: Date, to_date: Date, rsp_engine: RSPEngine, query: string, logger: any) {
+    constructor(ldes_stream: string, sourcePodAccess: SourcePodAccess, from_date: Date, to_date: Date, rsp_engine: RSPEngine, query: string, logger: any) {
         this.ldes_stream = ldes_stream;
-        this.communication = this.get_communication(session_credentials);
+        this.sourcePodAccess = sourcePodAccess;
+        this.communication = this.sourcePodAccess.communicationFor(ldes_stream);
         this.from_date = from_date;
         this.to_date = to_date;
         this.query = query;
@@ -63,7 +63,6 @@ export class DecentralizedFileStreamer {
         this.stream_name = rsp_engine.getStream(this.ldes_stream);
         this.comunica_engine = new QueryEngine();
         this.observation_array = [];
-        this.subscribing_latest_events(this.stream_name);
         DecentralizedFileStreamer.connect_with_server(resolveHeimdallWebSocketUrl(HEIMDALL_SETUP)).then(() => {
             console.log(`The connection with the websocket server was established.`);
         });
@@ -78,16 +77,6 @@ export class DecentralizedFileStreamer {
      * @returns {Promise<SolidCommunication | LDPCommunication>} - The communication object with the Solid Pod.
      * @memberof DecentralizedFileStreamer
      */
-    public async get_communication(credentials: session_credentials) {
-        const session = await this.get_session(credentials);
-        if (session) {
-            return new SolidCommunication(session);
-        }
-        else {
-            return new LDPCommunication();
-        }
-    }
-
     /**
      * Adding the events which might have been added between 
      * the start of the file streamer and the start of the websocket
@@ -240,12 +229,13 @@ export class DecentralizedFileStreamer {
     async subscribing_latest_events(stream_name: RDFStream | undefined) {
         if (stream_name !== undefined) {
             console.log(`Subscribing to the latest events of the stream`, stream_name);
-            const inbox = await extract_ldp_inbox(this.ldes_stream);
+            const sourceFetch = await this.sourcePodAccess.fetchFor(this.ldes_stream);
+            const inbox = await extract_ldp_inbox(this.ldes_stream, undefined, sourceFetch);
             if (inbox !== undefined) {
-                const subscription_server = await extract_subscription_server(inbox);
+                const subscription_server = await extract_subscription_server(inbox, undefined, await this.sourcePodAccess.fetchFor(inbox, this.ldes_stream));
                 if (subscription_server !== undefined) {
                     const server = subscription_server.location;
-                    const response_subscription = await create_subscription(server, inbox);
+                    const response_subscription = await create_subscription(server, inbox, undefined, await this.sourcePodAccess.fetchFor(server, this.ldes_stream));
                     if (response_subscription) {
                         this.logger.info(`The subscription has been succesful.`);
                     } else {
@@ -274,7 +264,7 @@ export class DecentralizedFileStreamer {
      */
     async get_inbox_container(stream: string): Promise<string | undefined> {
         console.log(`Getting the inbox container from`, stream);
-        const ldes_in_ldp: LDESinLDP = new LDESinLDP(stream, new LDPCommunication());
+        const ldes_in_ldp: LDESinLDP = new LDESinLDP(stream, await this.sourcePodAccess.communicationFor(stream));
         const metadata = await ldes_in_ldp.readMetadata();
         for (const quad of metadata) {
             if (quad.predicate.value === 'http://www.w3.org/ns/ldp#inbox') {
@@ -308,7 +298,7 @@ export class DecentralizedFileStreamer {
             "sendTo": `${heimdallSetupConfig.heimdallHttpServerUrl}`
         };
 
-        const response = await fetch(webhook_notification_server, {
+        const response = await (await this.sourcePodAccess.fetchFor(webhook_notification_server, ldes_stream))(webhook_notification_server, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/ld+json',
@@ -335,7 +325,7 @@ export class DecentralizedFileStreamer {
             "type": "http://www.w3.org/ns/solid/notifications#WebSocketChannel2023",
             "topic": `${ldes_stream}`
         }
-        const repsonse = await fetch(notification_server, {
+        const repsonse = await (await this.sourcePodAccess.fetchFor(notification_server, ldes_stream))(notification_server, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/ld+json',
@@ -379,7 +369,7 @@ export class DecentralizedFileStreamer {
             "type": "http://www.w3.org/ns/solid/notifications#WebSocketChannel2023",
             "topic": `${inbox_container}`
         }
-        const repsonse = await fetch(notification_server, {
+        const repsonse = await (await this.sourcePodAccess.fetchFor(notification_server, ldes_stream))(notification_server, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/ld+json',
@@ -407,15 +397,6 @@ export class DecentralizedFileStreamer {
      */
     get_file_streamer_start_time() {
         return this.file_streamer_start_time;
-    }
-    /**
-     * Get the session with the credentials.
-     * @param {session_credentials} credentials - The credentials of the solid pod for which you can generate an authenticated session to communicated to the Solid Pod's LDP.
-     * @returns {Promise<Session>} - The authenticated session.
-     * @memberof DecentralizedFileStreamer
-     */
-    async get_session(credentials: session_credentials): Promise<Session> {
-        return await session_with_credentials(credentials);
     }
     /**
      * Send a message to Heimdall's WebSocket server.
