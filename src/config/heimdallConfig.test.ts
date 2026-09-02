@@ -7,6 +7,35 @@ import {
 } from './heimdallConfig';
 
 describe('heimdall configuration compatibility', () => {
+    it('uses local development defaults without directing users to an experiment testbed', () => {
+        expect(DEFAULT_HEIMDALL_HTTP_SERVER_URL).toBe('http://localhost:8080/');
+        expect(DEFAULT_HEIMDALL_WS_SERVER_URL).toBe('ws://localhost:8080/');
+        expect(resolveHeimdallSetupConfig({})).toEqual({
+            heimdallHttpServerUrl: 'http://localhost:8080/',
+            heimdallWsServerUrl: 'ws://localhost:8080/',
+        });
+    });
+
+    it('prefers Heimdall environment variables, with legacy aggregator variables as fallback', () => {
+        expect(resolveHeimdallSetupConfig({
+            heimdall_http_server_url: 'http://config.example/http',
+            heimdall_ws_server_url: 'ws://config.example/ws',
+        }, {
+            HEIMDALL_HTTP_SERVER_URL: 'http://environment.example/http',
+            HEIMDALL_WS_SERVER_URL: 'ws://environment.example/ws',
+        })).toEqual({
+            heimdallHttpServerUrl: 'http://environment.example/http',
+            heimdallWsServerUrl: 'ws://environment.example/ws',
+        });
+        expect(resolveHeimdallSetupConfig({}, {
+            AGGREGATOR_HTTP_SERVER_URL: 'http://legacy-environment.example/http',
+            AGGREGATOR_WS_SERVER_URL: 'ws://legacy-environment.example/ws',
+        })).toEqual({
+            heimdallHttpServerUrl: 'http://legacy-environment.example/http',
+            heimdallWsServerUrl: 'ws://legacy-environment.example/ws',
+        });
+    });
+
     it('prefers new setup keys when present', () => {
         expect(resolveHeimdallSetupConfig({
             heimdall_http_server_url: 'http://heimdall.example/http',

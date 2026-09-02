@@ -1,5 +1,10 @@
 import { Logger } from "tslog";
 import { QueryRegistry } from "./QueryRegistry";
+import { MetricWriter } from '../../evaluation/MetricWriter';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { hash_string_md5 } from '../../utils/Util';
 
 describe('QueryRegistry', () => {
     let query_registry: QueryRegistry;
@@ -154,5 +159,23 @@ describe('QueryRegistry', () => {
         `;
         await query_registry.add_query_in_registry(query_one, logger);        
         expect(query_registry.checkUniqueQuery(query_one, logger)).toBe(true);
+    });
+
+    it('records the actual registration and reuse-check operations', async () => {
+        const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'heimdall-registry-'));
+        const registry = new QueryRegistry(new MetricWriter(directory, 'run-registry', 'heimdall'));
+        await registry.add_query_in_registry(rspql_query, logger);
+        const metrics = fs.readFileSync(path.join(directory, 'initialization.csv'), 'utf8');
+        expect(metrics).toContain('query_registration');
+        expect(metrics).toContain('query_reuse_check');
+    });
+
+    it('maps a syntactically different equivalent query to the first execution ID', async () => {
+        const registry = new QueryRegistry();
+        const first = rspql_query;
+        const equivalent = `${rspql_query}\n`;
+        expect(await registry.add_query_in_registry(first, logger)).toBe(true);
+        expect(await registry.add_query_in_registry(equivalent, logger)).toBe(false);
+        expect((registry as any).query_hash_map.get(hash_string_md5(equivalent))).toBe(hash_string_md5(first));
     });
 });

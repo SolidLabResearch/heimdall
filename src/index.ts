@@ -1,6 +1,8 @@
 import { HTTPServer } from "./server/HTTPServer";
 import * as bunyan from 'bunyan';
 import * as fs from 'fs';
+import * as path from 'path';
+import { createRuntimeResources } from './evaluation/Runtime';
 
 /**
  * Build a filesystem-safe timestamp string for runtime log filenames.
@@ -12,9 +14,9 @@ function getTimestamp() {
 }
 
 const timestamp = getTimestamp();
-
-const log_file = fs.createWriteStream(`heimdall-${timestamp}.log`, { flags: 'a' });
-const resource_used_log_file = `heimdall_resource_used-${timestamp}.csv`;
+const resultsDir = path.resolve(process.env.HEIMDALL_RESULTS_DIR || '.');
+fs.mkdirSync(resultsDir, { recursive: true });
+const log_file = fs.createWriteStream(path.join(resultsDir, process.env.HEIMDALL_RESULTS_DIR ? 'heimdall.log' : `heimdall-${timestamp}.log`), { flags: 'a' });
 const logger = bunyan.createLogger({
     name: 'heimdall',
     streams: [
@@ -33,29 +35,7 @@ const logger = bunyan.createLogger({
     }
 });
 
-interface MemoryUsage {
-    rss: number;
-    heapTotal: number;
-    heapUsed: number;
-    external: number;
-}
-
-fs.writeFileSync(resource_used_log_file, `timestamp, cpu_user, cpu_system, rss, heapTotal, heapUsed, external\n`);
-
-
-/**
- * Append a resource-usage sample to the runtime CSV log.
- * @returns {void}
- */
-function logCpuMemoryUsage() {
-    const cpuUsage = process.cpuUsage(); // in microseconds
-    const memoryUsage: MemoryUsage = process.memoryUsage(); // in bytes
-    const timestamp = Date.now();
-    const logData = `${timestamp},${cpuUsage.user},${memoryUsage.rss},${memoryUsage.heapTotal},${memoryUsage.heapUsed},${memoryUsage.external}\n`;
-    fs.appendFileSync(resource_used_log_file, logData);
-}
-
-setInterval(logCpuMemoryUsage, 500);
+const runtime = createRuntimeResources(logger);
 
 const program = require('commander');
 
@@ -78,7 +58,16 @@ program
         'http://localhost:3000/'
     )
     .action(async (options: any) => {
-        new HTTPServer(options.port, options.SolidServer, logger);
+        const server = new HTTPServer(options.port, options.SolidServer, logger, runtime.writer);
+        let shuttingDown = false;
+        const shutdown = async () => {
+            if (shuttingDown) return;
+            shuttingDown = true;
+            await server.close();
+            await runtime.close();
+        };
+        process.once('SIGINT', shutdown);
+        process.once('SIGTERM', shutdown);
     });
 
 program.parse();

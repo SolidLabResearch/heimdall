@@ -7,6 +7,7 @@ module.exports = {
     },
     testPathIgnorePatterns: [
         '/node_modules/',
+        '<rootDir>/dist/',
         '<rootDir>/scripts/uma/test.ts',
     ],
 };

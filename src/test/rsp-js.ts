@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 
 export type RDFStream = {
-    add: jest.Mock;
+        add: jest.Mock;
 };
 
 /**
@@ -9,13 +9,17 @@ export type RDFStream = {
  */
 export class RSPEngine {
     private readonly emitter = new EventEmitter();
+    private readonly onMetric?: (event: string, metric: any) => void;
 
     /**
      * Construct the stub engine.
      * @param {string} query - The registered query string.
      */
-    constructor(query: string) {
+    public readonly metrics = new EventEmitter();
+
+    constructor(query: string, options?: any) {
         void query;
+        this.onMetric = options?.onMetric;
     }
 
     /**
@@ -36,5 +40,9 @@ export class RSPEngine {
         return {
             add: jest.fn(),
         };
+    }
+
+    emitMetric(event: string, metric: any): void {
+        this.onMetric?.(event, metric);
     }
 }

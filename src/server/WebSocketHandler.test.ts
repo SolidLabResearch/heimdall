@@ -1,6 +1,49 @@
 import { HEIMDALL_WEBSOCKET_PROTOCOL, LEGACY_WEBSOCKET_PROTOCOL, resolveAcceptedWebSocketProtocol } from './websocketProtocols';
+import { EventEmitter } from 'events';
+import { WebSocketHandler } from './WebSocketHandler';
+import { MetricWriter } from '../evaluation/MetricWriter';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import * as Util from '../utils/Util';
 
 describe('WebSocketHandler compatibility', () => {
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+        return { ok: true, json: async () => ({}), text: async () => '' } as Response;
+    });
+
+    afterAll(() => fetchSpy.mockRestore());
+
+    const createEvaluationHandler = () => {
+        const events = new EventEmitter();
+        const websocketServer = new EventEmitter() as any;
+        const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'heimdall-evaluation-'));
+        const handler = new WebSocketHandler(
+            websocketServer,
+            events,
+            undefined,
+            { info: jest.fn(), debug: jest.fn() },
+            new MetricWriter(directory),
+        );
+        handler.handle_wss();
+
+        return { handler, websocketServer };
+    };
+
+    const sendEvaluationQuery = async (handler: WebSocketHandler, websocketServer: EventEmitter, message: object) => {
+        const connection = new EventEmitter() as any;
+        connection.send = jest.fn();
+        const request = {
+            requestedProtocols: [HEIMDALL_WEBSOCKET_PROTOCOL],
+            origin: 'http://example.test',
+            accept: jest.fn(() => connection),
+        };
+        const requestHandler = websocketServer.listeners('request')[0] as any;
+        await requestHandler(request);
+        const messageHandler = connection.listeners('message')[0] as any;
+        await messageHandler({ type: 'utf8', utf8Data: JSON.stringify(message) });
+    };
+
     it('accepts the Heimdall WebSocket protocol', () => {
         expect(resolveAcceptedWebSocketProtocol([HEIMDALL_WEBSOCKET_PROTOCOL])).toBe(HEIMDALL_WEBSOCKET_PROTOCOL);
     });
@@ -11,5 +54,184 @@ describe('WebSocketHandler compatibility', () => {
 
     it('rejects unsupported WebSocket protocols', () => {
         expect(resolveAcceptedWebSocketProtocol(['unsupported-protocol'])).toBeNull();
+    });
+
+    it('keeps legacy aggregation publishing explicit while recording outbound result dispatches', () => {
+        const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'heimdall-dispatch-'));
+        const events = new EventEmitter();
+        const websocketServer = new EventEmitter() as any;
+        const publisher = { publish: jest.fn(), update_latest_inbox: jest.fn(), lilURL: 'http://example.test/' } as any;
+        const handler = new WebSocketHandler(websocketServer, events, publisher, { info: jest.fn(), debug: jest.fn() }, new MetricWriter(directory));
+        handler.aggregation_event_publisher();
+        handler.aggregation_event_publisher();
+        expect(events.listenerCount('aggregation_event')).toBe(1);
+
+        const connection = { send: jest.fn() };
+        (handler as any).connections.set('query-a', [connection]);
+        handler.send_result_to_client('query-a', { aggregation_event: '<http://result> <http://p> <http://o> .' });
+        expect(connection.send).toHaveBeenCalledTimes(1);
+        const metrics = fs.readFileSync(path.join(directory, 'result-dispatch.csv'), 'utf8');
+        expect(metrics).toContain('result_delivery_send');
+        expect(metrics).toMatch(/[a-f0-9]{64}/);
+    });
+
+    it('does not invoke legacy authentication or authorization for an evaluation query', async () => {
+        const { handler, websocketServer } = createEvaluationHandler();
+        jest.spyOn(handler, 'preprocess_query').mockResolvedValue({
+            ldes_query: 'SELECT * WHERE { ?s ?p ?o }',
+            query_hashed: 'query-hash',
+            width: 1000,
+        });
+        const processQuery = jest.spyOn(handler, 'process_query').mockResolvedValue('query-hash');
+        const legacyAuthentication = jest.spyOn(handler, 'if_authenticated').mockResolvedValue(false);
+        const legacyAuthorization = jest.spyOn(handler, 'if_authorized').mockResolvedValue(true);
+
+        await sendEvaluationQuery(handler, websocketServer, {
+            query: 'SELECT * WHERE { ?s ?p ?o }',
+            type: 'live',
+            client_id: 'client-a',
+        });
+
+        expect(processQuery).toHaveBeenCalled();
+        expect(legacyAuthentication).not.toHaveBeenCalled();
+        expect(legacyAuthorization).not.toHaveBeenCalled();
+        expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('routes an equivalent registration connection to its canonical execution', async () => {
+        const { handler, websocketServer } = createEvaluationHandler();
+        jest.spyOn(handler, 'preprocess_query').mockResolvedValue({
+            ldes_query: 'SELECT * WHERE { ?s ?p ?o }',
+            query_hashed: 'submitted-query',
+            width: 1000,
+        });
+        jest.spyOn(handler, 'process_query').mockResolvedValue('canonical-query');
+
+        await sendEvaluationQuery(handler, websocketServer, {
+            query: 'SELECT * WHERE { ?s ?p ?o }',
+            type: 'live',
+            client_id: 'client-a',
+        });
+
+        expect((handler as any).connections.has('submitted-query')).toBe(false);
+        expect((handler as any).connections.get('canonical-query')).toHaveLength(1);
+    });
+
+    it('delivers evaluation results over WebSocket without persistence or authentication metrics', async () => {
+        const { handler, websocketServer } = createEvaluationHandler();
+        jest.spyOn(handler, 'preprocess_query').mockResolvedValue({
+            ldes_query: 'SELECT * WHERE { ?s ?p ?o }',
+            query_hashed: 'query-hash',
+            width: 1000,
+        });
+        const processQuery = jest.spyOn(handler, 'process_query').mockResolvedValue('query-hash');
+        const legacyAuthentication = jest.spyOn(handler, 'if_authenticated').mockResolvedValue(true);
+        const legacyAuthorization = jest.spyOn(handler, 'if_authorized').mockResolvedValue(false);
+
+        await sendEvaluationQuery(handler, websocketServer, {
+            query: 'SELECT * WHERE { ?s ?p ?o }',
+            type: 'live',
+            client_id: 'client-a',
+        });
+
+        expect(processQuery).toHaveBeenCalledWith(
+            'SELECT * WHERE { ?s ?p ?o }',
+            1000,
+            'live',
+            handler.event_emitter,
+            'client-a',
+        );
+        expect(legacyAuthentication).not.toHaveBeenCalled();
+        expect(legacyAuthorization).not.toHaveBeenCalled();
+        expect(fetchSpy).not.toHaveBeenCalled();
+
+        const connection = (handler as any).connections.get('query-hash')[0];
+        const event = JSON.stringify({ query_hash: 'query-hash', aggregation_event: '<http://result> <http://p> <http://o> .' });
+        handler.event_emitter.emit('aggregation_event', event);
+        expect(connection.send).toHaveBeenCalledWith('<http://result> <http://p> <http://o> .');
+        expect((handler as any).aggregation_publisher).toBeUndefined();
+        const metrics = fs.readFileSync(path.join((handler as any).metric_writer.resultsDir, 'initialization.csv'), 'utf8');
+        expect(metrics).not.toContain('service_authentication');
+    });
+
+    it('does not register the legacy aggregation publisher', () => {
+        const { handler, websocketServer } = createEvaluationHandler();
+        expect(handler.aggregation_publisher).toBeUndefined();
+        expect(handler.event_emitter.listenerCount('aggregation_event')).toBe(1);
+        expect(websocketServer.listenerCount('request')).toBe(1);
+    });
+
+    it('preserves all explicit stream references without discovery or mutation', async () => {
+        const { handler } = createEvaluationHandler();
+        const query = `
+PREFIX : <https://rsp.js/>
+REGISTER RStream <output> AS
+SELECT ?s
+FROM NAMED WINDOW :x ON STREAM <http://example.test/pod/acc-x/> [RANGE 180000 STEP 250]
+FROM NAMED WINDOW :y ON STREAM <http://example.test/pod/acc-y/> [RANGE 180000 STEP 250]
+FROM NAMED WINDOW :z ON STREAM <http://example.test/pod/acc-z/> [RANGE 180000 STEP 250]
+WHERE {
+    WINDOW :x { ?s ?p ?o }
+    WINDOW :y { ?s ?p ?o }
+    WINDOW :z { ?s ?p ?o }
+}`;
+        const discovery = jest.spyOn(Util, 'find_relevant_streams');
+
+        const result = await handler.preprocess_query(query, 'client-a');
+
+        expect(result.ldes_query).toBe(query);
+        expect(result.ldes_query).toContain('http://example.test/pod/acc-x/');
+        expect(result.ldes_query).toContain('http://example.test/pod/acc-y/');
+        expect(result.ldes_query).toContain('http://example.test/pod/acc-z/');
+        expect(result.ldes_query).not.toContain('undefined');
+        expect(discovery).not.toHaveBeenCalled();
+        const metrics = fs.readFileSync(path.join((handler as any).metric_writer.resultsDir, 'initialization.csv'), 'utf8');
+        expect(metrics).not.toContain('stream_discovery');
+        discovery.mockRestore();
+    });
+
+    it('retains legacy Pod discovery and records its timing', async () => {
+        const { handler } = createEvaluationHandler();
+        const podUrl = 'http://example.test/pod/';
+        const streamUrl = `${podUrl}acc-x/`;
+        const query = `
+PREFIX : <https://rsp.js/>
+REGISTER RStream <output> AS
+SELECT (MAX(?o) AS ?maxValue)
+FROM NAMED WINDOW :x ON STREAM <${podUrl}> [RANGE 180000 STEP 250]
+WHERE {
+    WINDOW :x {
+        ?s ?p ?o
+    }
+}`;
+        const discovery = jest.spyOn(Util, 'find_relevant_streams').mockResolvedValue([streamUrl]);
+
+        const result = await handler.preprocess_query(query, 'client-a');
+
+        expect(result.ldes_query).toContain(`<${streamUrl}>`);
+        expect(result.ldes_query).not.toContain('undefined');
+        expect(discovery).toHaveBeenCalledWith(podUrl, expect.any(Array));
+        const metrics = fs.readFileSync(path.join((handler as any).metric_writer.resultsDir, 'initialization.csv'), 'utf8');
+        expect(metrics).toContain('stream_discovery');
+        discovery.mockRestore();
+    });
+
+    it('fails explicitly when legacy discovery returns no streams', async () => {
+        const { handler } = createEvaluationHandler();
+        const podUrl = 'http://example.test/pod/';
+        const query = `
+PREFIX : <https://rsp.js/>
+REGISTER RStream <output> AS
+SELECT (MAX(?o) AS ?maxValue)
+FROM NAMED WINDOW :x ON STREAM <${podUrl}> [RANGE 180000 STEP 250]
+WHERE {
+    WINDOW :x {
+        ?s ?p ?o
+    }
+}`;
+        const discovery = jest.spyOn(Util, 'find_relevant_streams').mockResolvedValue([]);
+
+        await expect(handler.preprocess_query(query)).rejects.toThrow(`No relevant LDES stream found for Pod source ${podUrl}`);
+        discovery.mockRestore();
     });
 });

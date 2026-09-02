@@ -7,9 +7,12 @@ import * as CREDENTIALS from '../../config/PodToken.json';
 import { BindingsWithTimestamp } from "../../utils/Types";
 import { hash_string_md5 } from "../../utils/Util";
 import { Credentials, aggregation_object } from "../../utils/Types";
-import { NotificationStreamProcessor } from "./NotificationStreamProcessor";
+import { SharedStreamRegistry } from './SharedStreamRegistry';
 import { N3ReasonerService } from "../reasoner/N3Reasoner";
 import { HEIMDALL_WEBSOCKET_PROTOCOL } from "../../server/websocketProtocols";
+import { MetricWriter } from '../../evaluation/MetricWriter';
+import * as HEIMDALL_SETUP from '../../config/heimdall_setup.json';
+import { resolveHeimdallWebSocketUrl } from '../../config/heimdallConfig';
 const WebSocketClient = require('websocket').client;
 const websocketConnection = require('websocket').connection;
 const parser = new RSPQLParser();
@@ -30,6 +33,10 @@ export class HeimdallInstantiator {
     public to_date: Date;
     public client = new WebSocketClient();
     public connection: typeof websocketConnection;
+    private readonly metric_writer: MetricWriter;
+    private readonly client_id?: string;
+    private readonly ready_promise: Promise<void>;
+    private readonly sharedStreamRegistry?: SharedStreamRegistry;
     /**
      * Creates an instance of HeimdallInstantiator.
      * @param {string} query - The RSPQL query.
@@ -41,13 +48,27 @@ export class HeimdallInstantiator {
      * @param {string} rules - The rules for the query.
      * @memberof HeimdallInstantiator
      */
-    public constructor(query: string, from_timestamp: number, to_timestamp: number, logger: any, query_type: string, event_emitter: any, rules: string = '') {
+    public constructor(query: string, from_timestamp: number, to_timestamp: number, logger: any, query_type: string, event_emitter: any, rules: string = '', metric_writer: MetricWriter = new MetricWriter(), client_id?: string, sharedStreamRegistry?: SharedStreamRegistry) {
         this.query = query;
         this.rules = rules;
         this.logger = logger;
         this.event_emitter = event_emitter;
+        this.metric_writer = metric_writer;
+        this.client_id = client_id;
+        this.sharedStreamRegistry = sharedStreamRegistry;
         this.hash_string = hash_string_md5(query);
-        this.rsp_engine = new RSPEngine(query);
+        this.rsp_engine = new RSPEngine(query, {
+            // This delay is evaluation configuration for the 4 Hz experiment only;
+            // RSP-JS retains ownership of classification and window semantics.
+            max_delay: this.metric_writer.enabled ? 30000 : undefined,
+            metrics: { run_id: metric_writer.runId, approach: metric_writer.approach, client_id: client_id || 'unspecified', query_id: this.hash_string },
+            onMetric: (event: string, metric: any) => {
+                if (event === 'rsp_insertion') metric_writer.record('event-processing.csv', event, metric);
+                else if (event === 'r2r_first_result') metric_writer.record('window-processing.csv', event, metric);
+                else if (event === 'window_query_processing') metric_writer.record('window-processing.csv', event, metric);
+                else if (event === 'out_of_order_event') metric_writer.record('out-of-order.csv', event, metric);
+            },
+        });
         this.from_date = new Date(from_timestamp);
         this.to_date = new Date(to_timestamp);
         this.stream_array = [];
@@ -56,8 +77,10 @@ export class HeimdallInstantiator {
             this.stream_array.push(stream.stream_name);
         });
         this.rsp_emitter = this.rsp_engine.register();
-        this.initializeProcessing(query_type);
+        this.ready_promise = this.initializeProcessing(query_type).then(() => undefined);
     }
+
+    public ready(): Promise<void> { return this.ready_promise; }
 
     /**
      * Initialize the processing of the query.
@@ -75,16 +98,22 @@ export class HeimdallInstantiator {
                     this.logger.info({ query_hashed }, `stream_credentials_retrieved`);
                     new DecentralizedFileStreamer(stream, session_credentials, this.from_date, this.to_date, this.rsp_engine, this.query, this.logger);
                 }
-                this.subscribeRStream();
+                await this.subscribeRStream();
                 return true;
             }
             else if (query_type === 'live') {
                 console.log(`The query type is live.`);
+                // Install output routing before registering the remote
+                // notification subscription: an immediately delivered event
+                // must not precede this query's RStream listener.
+                await this.subscribeRStream();
                 for (const stream of this.stream_array) {
                     this.logger.info({ query_hashed }, `stream_credentials_retrieved`);
-                    new NotificationStreamProcessor(stream, this.logger, this.rsp_engine, this.event_emitter);
+                    if (!this.sharedStreamRegistry) throw new Error('Live processing requires a SharedStreamRegistry');
+                    const rdfStream = this.rsp_engine.getStream(stream);
+                    if (!rdfStream) throw new Error(`RSP engine has no RDF stream for ${stream}`);
+                    await this.sharedStreamRegistry.attach(stream, this.hash_string, rdfStream);
                 }
-                this.subscribeRStream();
                 return true;
             }
             else {
@@ -101,14 +130,25 @@ export class HeimdallInstantiator {
      * Subscribe to the RStream of the RSP Engine to listen to the bindings, i.e the generated aggregation events and send it to Heimdall's WebSocket server for further processing (i.e. Publishing to the Solid Pod and sending to clients).
      * @memberof HeimdallInstantiator
      */
-    public async subscribeRStream() {
-        this.connect_with_server('ws://localhost:8080/').then(() => {
-            console.log(`The connection with the websocket server has been established.`);
-            this.connection.connected = true;
+    public async subscribeRStream(): Promise<void> {
+        await new Promise<void>((resolve, reject) => {
+            this.client.once('connectFailed', reject);
+            this.client.once('connect', (connection: typeof websocketConnection) => {
+                this.connection = connection;
+                this.connection.connected = true;
+                console.log(`The connection with the websocket server has been established.`);
+                resolve();
+            });
+            this.client.connect(resolveHeimdallWebSocketUrl(HEIMDALL_SETUP), HEIMDALL_WEBSOCKET_PROTOCOL);
         });
-        this.client.on('connect', (connection: typeof websocketConnection) => {
-            console.log(`The connection with the server has been established. ${connection.connected}`);
+        {
+            console.log(`The connection with the server has been established. ${this.connection.connected}`);
             this.rsp_emitter.on('RStream', async (object: BindingsWithTimestamp) => {
+                this.metric_writer.record('event-processing.csv', 'rsp_result_generated', {
+                    query_id: this.hash_string,
+                    window_from_ms: object.timestamp_from,
+                    window_to_ms: object.timestamp_to,
+                });
                 const window_timestamp_from = object.timestamp_from;
                 const window_timestamp_to = object.timestamp_to;
                 const iterable = object.bindings.values();
@@ -129,8 +169,8 @@ export class HeimdallInstantiator {
                     this.sendToServer(aggregation_object_string);
                     this.logger.info({}, 'aggregation_event_sent_to_heimdall_websocket_server');
                 }
-            })
-        });
+            });
+        }
     }
 
     // TODO : add extra projection variables to the aggregation event.
@@ -193,7 +233,7 @@ export class HeimdallInstantiator {
             this.connection.sendUTF(message);
         }
         else {
-            this.connect_with_server('ws://localhost:8080/').then(() => {
+            this.connect_with_server(resolveHeimdallWebSocketUrl(HEIMDALL_SETUP)).then(() => {
                 console.log(`The connection with the websocket server was not established. It is now established.`);
             });
         }

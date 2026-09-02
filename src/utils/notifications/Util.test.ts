@@ -102,7 +102,7 @@ describe('Util_Functions', () => {
                 "@context": ["https://www.w3.org/ns/solid/notification/v1"],
                 "type": "http://www.w3.org/ns/solid/notifications#WebhookChannel2023",
                 "topic": `${mockInboxLocation}`,
-                "sendTo": "http://n078-22.wall1.ilabt.imec.be:8080/"
+                "sendTo": "http://localhost:8080/"
             })
         });
         expect(console.error).not.toHaveBeenCalled();

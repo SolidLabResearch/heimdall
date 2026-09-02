@@ -2,7 +2,7 @@ import { Parser } from "n3";
 import * as WebSocket from 'websocket';
 import { EventEmitter } from "events";
 import * as CONFIG from '../config/ldes_properties.json';
-import { LDESPublisher } from "../service/publishing-stream-to-pod/LDESPublisher";
+import type { LDESPublisher } from "../service/publishing-stream-to-pod/LDESPublisher";
 import { find_relevant_streams, hash_string_md5 } from "../utils/Util";
 import { QueryHandler } from "./QueryHandler";
 import { RSPQLParser } from "../service/parsers/RSPQLParser";
@@ -16,6 +16,9 @@ import {
     LEGACY_WEBSOCKET_PROTOCOL,
     resolveAcceptedWebSocketProtocol,
 } from "./websocketProtocols";
+import { MetricWriter } from '../evaluation/MetricWriter';
+import { createHash } from 'crypto';
+import { SharedStreamRegistry } from '../service/heimdall/SharedStreamRegistry';
 
 /**
  * Class for handling the Websocket server.
@@ -30,9 +33,11 @@ export class WebSocketHandler {
     private n3_parser: Parser;
     public websocket_server: WebSocket.server;
     public event_emitter: EventEmitter;
-    public aggregation_publisher: LDESPublisher;
+    public aggregation_publisher?: LDESPublisher;
     public logger: any;
     private query_registry: QueryRegistry;
+    private readonly metric_writer: MetricWriter;
+    private aggregationPublisherRegistered = false;
     /**
      * Creates an instance of WebSocketHandler.
      * @param {WebSocket.server} websocket_server - The Websocket server.
@@ -41,7 +46,7 @@ export class WebSocketHandler {
      * @param {*} logger - The logger object.
      * @memberof WebSocketHandler
      */
-    constructor(websocket_server: WebSocket.server, event_emitter: EventEmitter, aggregation_publisher: LDESPublisher, logger: any) {
+    constructor(websocket_server: WebSocket.server, event_emitter: EventEmitter, aggregation_publisher: LDESPublisher | undefined, logger: any, metric_writer: MetricWriter = new MetricWriter(), sharedStreamRegistry?: SharedStreamRegistry) {
         this.aggregation_resource_list = [];
         this.logger = logger;
         this.websocket_server = websocket_server;
@@ -49,7 +54,8 @@ export class WebSocketHandler {
         this.aggregation_publisher = aggregation_publisher;
         this.connections = new Map<string, WebSocket[]>();
         this.parser = new RSPQLParser();
-        this.query_registry = new QueryRegistry();
+        this.metric_writer = metric_writer;
+        this.query_registry = new QueryRegistry(metric_writer, sharedStreamRegistry);
         this.n3_parser = new Parser({ format: 'N-Triples' });
         this.logger.info({}, 'websocket_handler_initialized');
     }
@@ -58,7 +64,9 @@ export class WebSocketHandler {
      * Handle the Websocket server.
      * It retrieves the query from the client and processes it.
      * It also sends the result to the client.
-     * It also stores the aggregation event in Heimdall's Solid Pod.
+     * Evaluation results are delivered directly to subscribed clients. Legacy
+     * Solid Pod publishing remains available as an explicit, non-evaluation
+     * method but is not registered here.
      * @memberof WebSocketHandler
      */
     public handle_wss() {
@@ -81,18 +89,27 @@ export class WebSocketHandler {
                     const message_utf8 = message.utf8Data;
                     const ws_message = JSON.parse(message_utf8);
                     if (Object.keys(ws_message).includes('query')) {
+                        const message_id = ws_message.message_id || ws_message.query_id || hash_string_md5(message_utf8);
+                        const received_epoch_ms = Date.now();
+                        this.metric_writer.record('initialization.csv', 'websocket_message_received', {
+                            client_id: ws_message.client_id,
+                            message_id,
+                            start_epoch_ms: received_epoch_ms,
+                            end_epoch_ms: received_epoch_ms,
+                            duration_ms: 0,
+                        });
                         this.logger.info({ query: ws_message.query }, `new_query_received_from_client_ws`);
                         const query_type = ws_message.type;
                         if (query_type === 'historical+live' || query_type === 'live') {
                             this.logger.info({}, `query_preprocessing_started`);
-                            const { ldes_query, query_hashed, width } = await this.preprocess_query(ws_message.query);
+                            const { ldes_query, query_hashed, width } = await this.preprocess_query(ws_message.query, ws_message.client_id);
                             this.logger.info({ query_id: query_hashed }, `query_preprocessed`);
                             this.set_connections(query_hashed, connection);
-                            if (await this.if_authenticated()) {
-                                if (await this.if_authorized()) {
-                                    this.process_query(ldes_query, width, query_type, this.event_emitter);
-                                }
-                            }
+                            const executionId = await this.process_query(ldes_query, width, query_type, this.event_emitter, ws_message.client_id);
+                            if (executionId && executionId !== query_hashed) this.move_connection(query_hashed, executionId, connection);
+                            // QueryHandler has awaited RSP construction, every stream
+                            // handler, every Solid subscription, and result routing.
+                            connection.send(JSON.stringify({ type: 'query_ready', query_id: createHash('sha256').update(ldes_query).digest('hex'), client_id: ws_message.client_id }));
                         }
                         else {
                             throw new Error(`The type of Query is not supported/handled. The type of query is: ${ws_message.type}`);
@@ -104,7 +121,15 @@ export class WebSocketHandler {
                         for (const [query, connections] of this.connections) {
                             if (query === query_hash) {
                                 for (const connection of connections) {
-                                    connection.send(JSON.stringify(ws_message));
+                                    const outbound = JSON.stringify(ws_message);
+                                    const start_epoch_ms = Date.now();
+                                    const start_monotonic_ns = process.hrtime.bigint();
+                                    connection.send(outbound);
+                                    this.metric_writer.timed('result-dispatch.csv', 'result_delivery_send', {
+                                        query_id: query_hash,
+                                        result_id: createHash('sha256').update(outbound).digest('hex'),
+                                        server_send_epoch_ms: start_epoch_ms,
+                                    }, start_epoch_ms, start_monotonic_ns);
                                 }
                             }
                         }
@@ -135,7 +160,6 @@ export class WebSocketHandler {
             });
         });
         this.client_response_publisher();
-        this.aggregation_event_publisher();
     }
 
     /**
@@ -149,7 +173,15 @@ export class WebSocketHandler {
             const connections = this.connections.get(query_id);
             if (connections !== undefined) {
                 for (const connection of connections) {
-                    connection.send(event.aggregation_event);
+                    const start_epoch_ms = Date.now();
+                    const start_monotonic_ns = process.hrtime.bigint();
+                    const outbound = event.aggregation_event;
+                    connection.send(outbound);
+                    this.metric_writer.timed('result-dispatch.csv', 'result_delivery_send', {
+                        query_id,
+                        result_id: createHash('sha256').update(outbound).digest('hex'),
+                        server_send_epoch_ms: start_epoch_ms,
+                    }, start_epoch_ms, start_monotonic_ns);
                 }
             }
         });
@@ -200,18 +232,25 @@ export class WebSocketHandler {
      * @memberof WebSocketHandler
      */
     public aggregation_event_publisher() {
+        if (this.aggregationPublisherRegistered) return;
+        this.aggregationPublisherRegistered = true;
         this.event_emitter.on('aggregation_event', async (object: string) => {
             const parser = new Parser({ format: 'N-Triples' });
             const aggregation_event = JSON.parse(object)
             const event_quad: any = parser.parse(aggregation_event.aggregation_event);
             this.aggregation_resource_list.push(event_quad);
             if (this.aggregation_resource_list.length == this.aggregation_resource_list_batch_size) {
+                if (!this.aggregation_publisher) {
+                    throw new Error('Aggregation publishing is not configured for this handler.');
+                }
                 await this.aggregation_publisher.publish(this.aggregation_resource_list, aggregation_event.aggregation_window_from, aggregation_event.aggregation_window_to);
                 this.aggregation_resource_list = [];
             }
             if (this.aggregation_resource_list.length == 0) {
                 this.logger.debug(`No aggregation events to publish.`);
-                this.aggregation_publisher.update_latest_inbox(this.aggregation_publisher.lilURL);
+                if (this.aggregation_publisher) {
+                    this.aggregation_publisher.update_latest_inbox(this.aggregation_publisher.lilURL);
+                }
             }
         });
 
@@ -240,7 +279,15 @@ export class WebSocketHandler {
         const websocket_clients = this.connections.get(query_id);
         if (websocket_clients !== undefined) {
             for (const client of websocket_clients) {
-                client.send(JSON.stringify(result));
+                const outbound = JSON.stringify(result);
+                const start_epoch_ms = Date.now();
+                const start_monotonic_ns = process.hrtime.bigint();
+                client.send(outbound);
+                this.metric_writer.timed('result-dispatch.csv', 'result_delivery_send', {
+                    query_id,
+                    result_id: createHash('sha256').update(outbound).digest('hex'),
+                    server_send_epoch_ms: start_epoch_ms,
+                }, start_epoch_ms, start_monotonic_ns);
             }
         }
         else {
@@ -256,8 +303,8 @@ export class WebSocketHandler {
      * @param {EventEmitter} event_emitter - The event emitter object.
      * @memberof WebSocketHandler
      */
-    public process_query(query: string, width: number, query_type: string, event_emitter: EventEmitter) {
-        QueryHandler.handle_ws_query(query, width, this.query_registry, this.logger, this.connections, query_type, event_emitter);
+    public process_query(query: string, width: number, query_type: string, event_emitter: EventEmitter, client_id?: string): Promise<string> {
+        return QueryHandler.handle_ws_query(query, width, this.query_registry, this.logger, this.connections, query_type, event_emitter, client_id);
     }
 
     /**
@@ -266,15 +313,35 @@ export class WebSocketHandler {
      * @returns {Promise<{ ldes_query: string, query_hashed: string, width: number }>} - The preprocessed query (which now contains the LDES stream instead of just the pod), the hashed query and the width of the window.
      * @memberof WebSocketHandler
      */
-    public async preprocess_query(query: string): Promise<{ ldes_query: string, query_hashed: string, width: number }> {
+    public async preprocess_query(query: string, client_id?: string): Promise<{ ldes_query: string, query_hashed: string, width: number }> {
         const parsed = this.parser.parse(query);
+        if (parsed.s2r.length === 0) {
+            throw new Error('Cannot preprocess query without a STREAM reference');
+        }
+
+        // Queries with multiple STREAM references already identify their LDES
+        // containers. Preserve the complete query, including every stream URL.
+        // Type Index discovery is only applicable to the legacy single-source
+        // form where that source represents a Solid Pod.
+        if (parsed.s2r.length > 1) {
+            const width = parsed.s2r[0].width;
+            const query_hashed = hash_string_md5(query);
+            return { ldes_query: query, query_hashed, width };
+        }
+
         const pod_url = parsed.s2r[0].stream_name;
         const interest_metric = new AggregationFocusExtractor(query).extract_focus();
+        const start_epoch_ms = Date.now();
+        const start_monotonic_ns = process.hrtime.bigint();
         const streams = await find_relevant_streams(pod_url, interest_metric);
         const ldes_stream = streams[0];
+        if (ldes_stream === undefined) {
+            throw new Error(`No relevant LDES stream found for Pod source ${pod_url}`);
+        }
         const ldes_query = query.replace(pod_url, ldes_stream);
         const width = parsed.s2r[0].width;
         const query_hashed = hash_string_md5(ldes_query);
+        this.metric_writer.timed('initialization.csv', 'stream_discovery', { client_id, query_id: query_hashed, stream_id: ldes_stream }, start_epoch_ms, start_monotonic_ns);
         return { ldes_query, query_hashed, width };
     }
     /**
@@ -298,30 +365,40 @@ export class WebSocketHandler {
         this.logger.info({ query_id: query_hashed }, `websocket_connection_set_for_query`);
     }
 
+    private move_connection(fromQueryId: string, toQueryId: string, connection: WebSocket): void {
+        const fromConnections = this.connections.get(fromQueryId) || [];
+        this.connections.set(fromQueryId, fromConnections.filter(candidate => candidate !== connection));
+        if (this.connections.get(fromQueryId)?.length === 0) this.connections.delete(fromQueryId);
+        this.set_connections(toQueryId, connection);
+    }
+
     /**
-     * Check whether the configured aggregation pod credentials can authenticate.
+     * Legacy aggregation-pod authentication check. It is retained for older
+     * callers, but the 4 Hz evaluation path does not invoke it because source
+     * streams are accessed anonymously under the deployed allow-all setup.
      * @returns {Promise<boolean>} Whether the configured session can authenticate.
      */
-    public async if_authenticated(): Promise<boolean> {
+    public async if_authenticated(client_id?: string, query_id?: string): Promise<boolean> {
+        const start_epoch_ms = Date.now();
+        const start_monotonic_ns = process.hrtime.bigint();
         const session = await getAuthenticatedSession({
             webId: AGG_CONFIG.aggregation_pod_web_id,
             password: AGG_CONFIG.aggregation_pod_password,
             email: AGG_CONFIG.aggregation_pod_email,
         })
 
-        if (session) {
-            return true;
-        }
-        else {
-            return false;
-        }
+        const authenticated = Boolean(session);
+        this.metric_writer.timed('initialization.csv', 'service_authentication', { client_id, query_id }, start_epoch_ms, start_monotonic_ns);
+        return authenticated;
     }
 
     /**
      * Check whether the static healthcare policy authorizes the request.
      * @returns {Promise<boolean>} Whether the request is authorized.
      */
-    public async if_authorized(): Promise<boolean> {
+    public async if_authorized(client_id?: string, query_id?: string): Promise<boolean> {
+        const start_epoch_ms = Date.now();
+        const start_monotonic_ns = process.hrtime.bigint();
         const healthcare_patient_policy =
             `PREFIX dcterms: <http://purl.org/dc/terms/>
 PREFIX eu-gdpr: <https://w3id.org/dpv/legal/eu/gdpr#>
@@ -354,7 +431,9 @@ PREFIX ex: <http://example.org/>
   odrl:leftOperand oac:LegalBasis ;
   odrl:operator odrl:eq ;
   odrl:rightOperand eu-gdpr:A9-2-a .`;
-        return accessResource('http://localhost:3000/ruben/profile/card#me', 'http://localhost:3000/ruben/medical/aggregation-x/', 'http://localhost:3000/alice/profile/card#me', healthcare_patient_policy, 'http://localhost:3000/ruben/settings/policies/')
+        const authorized = await accessResource('http://localhost:3000/ruben/profile/card#me', 'http://localhost:3000/ruben/medical/aggregation-x/', 'http://localhost:3000/alice/profile/card#me', healthcare_patient_policy, 'http://localhost:3000/ruben/settings/policies/');
+        this.metric_writer.timed('initialization.csv', 'service_authorization', { client_id, query_id }, start_epoch_ms, start_monotonic_ns);
+        return authorized;
         // const parsed = this.parser.parse(query);
         // const pod_url = parsed.s2r[0].stream_name;
         // console.log(`Checking if the user is authorized to access the stream: ${pod_url}`);
