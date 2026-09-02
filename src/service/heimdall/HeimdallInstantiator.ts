@@ -60,7 +60,7 @@ export class HeimdallInstantiator {
         this.sourcePodAccess = sourcePodAccess;
         this.hash_string = hash_string_md5(query);
         this.rsp_engine = new RSPEngine(query, {
-            // This delay is evaluation configuration for the 4 Hz experiment only;
+            // This delay is enabled only while evaluation instrumentation is active;
             // RSP-JS retains ownership of classification and window semantics.
             max_delay: this.metric_writer.enabled ? 30000 : undefined,
             metrics: { run_id: metric_writer.runId, approach: metric_writer.approach, client_id: client_id || 'unspecified', query_id: this.hash_string },

@@ -69,7 +69,7 @@ npm install
 npm run build
 ```
 
-Current maintained code pins RSP-JS to `db30dea9c2e9182379d920423c230566512f629c`. A manually prepared sibling `../RSP-JS` checkout is not required. This is different from the frozen Sensors snapshot, which retains its historical dependency arrangement.
+Current maintained code pins RSP-JS to `db30dea9c2e9182379d920423c230566512f629c`. A manually prepared sibling `../RSP-JS` checkout is not required. The frozen evaluation snapshot retains its historical dependency arrangement.
 
 ## Running Heimdall
 
@@ -136,13 +136,11 @@ Send a JSON message containing a query, a processing type, and a client identifi
 
 ## Credentials
 
-Heimdall can access both public and protected Solid streams. Authentication is a property of the source Pod or stream deployment, not of whether a query is `live` or `historical+live`.
+Heimdall supports both public and protected Solid sources. When credentials are configured for a matching source, Heimdall uses authenticated access; otherwise it uses unauthenticated access. Authentication is a property of the source Pod or stream deployment, not of whether a query is `live` or `historical+live`.
 
 For a protected source, copy [source-pod-credentials.example.json](./config/source-pod-credentials.example.json) to `config/source-pod-credentials.local.json`, fill it locally, and keep it untracked. Alternatively, set `HEIMDALL_SOURCE_POD_CREDENTIALS_FILE` to a local credential-file path. Each key is a source stream URL or a Pod URL prefix; matching is restricted to the same origin and path boundary, and the most-specific matching entry is selected. Same-origin resources discovered from a configured stream can reuse that source session; cross-origin notification resources require their own matching configuration. The entry contains a CSS client-credential `id`, `secret`, and `idp`.
 
 When configured, Heimdall reuses the resulting authenticated session for relevant source operations: Type Index lookup, LDES metadata and historical retrieval, notification inbox and subscription-server discovery, notification subscription creation, and notification-event retrieval. When no matching source credentials are configured, these operations use ordinary unauthenticated HTTP, so public streams do not need a credentials file. A protected resource with no usable credentials reports the underlying authorization failure; an invalid configured entry reports a configuration error.
-
-This does not assert that the Sensors evaluation used authentication; its deployment-specific authorization setup is not established by this repository.
 
 ### Legacy aggregation-Pod functionality
 
@@ -150,7 +148,7 @@ The retained aggregation-Pod authentication and publishing features are separate
 
 The old local aggregation-Pod seeding helper additionally uses `src/server/aggregator-pod/account.local.json`, based on `src/server/aggregator-pod/account.example.json`, or `HEIMDALL_AGGREGATION_POD_ACCOUNT_FILE`.
 
-These local credential files are Git-ignored. Never commit real credentials. Credentials previously present in historical commits or the Sensors tag must be treated as exposed and must never be retrieved or reused.
+These local credential files are Git-ignored. Never commit real credentials. Credentials previously present in historical commits or the evaluation snapshot must be treated as exposed and must never be retrieved or reused.
 
 ## Testing
 
@@ -163,17 +161,17 @@ npm test -- --runInBand
 npm run lint:ts
 ```
 
-On PR #51, the build and TypeScript check pass, and 104 tests pass. TypeScript linting still has substantial legacy and research-lineage debt; it is not treated as a clean baseline for unrelated documentation work.
+The build, TypeScript check, and test suite provide the primary local validation path. TypeScript linting still has substantial legacy debt and is not treated as a clean baseline for unrelated documentation work.
 
-## Sensors 2026 reproducibility
+## Evaluation reproducibility
 
-The maintained implementation is `master`. The exact Heimdall source snapshot used for the Sensors 2026 evaluation is the annotated `sensors-2026-evaluation` tag, which dereferences to `c663e6b3a2be39688dae7682576de32fb50a8d8c`.
+`master` is the maintained Heimdall implementation. `evaluation-2026-snapshot` is a frozen historical implementation used for the 2026 experimental evaluation; it dereferences to `c663e6b3a2be39688dae7682576de32fb50a8d8c`.
 
-The tag preserves Heimdall's historical source state, not a complete standalone experiment. Full reproduction also requires the corresponding RSP-JS setup, Solid deployment, workload and data, experimental configuration, and infrastructure. Consult [EVALUATION-METRICS.md](./EVALUATION-METRICS.md) for the metric contract and [EVALUATION-DEPLOYMENT-AUDIT.md](./EVALUATION-DEPLOYMENT-AUDIT.md) for deployment-path distinctions.
+The tag preserves Heimdall's source state only. Complete reproduction additionally requires the corresponding RSP-JS revision, Solid deployment, workload and data, configuration, and infrastructure. Consult [EVALUATION-METRICS.md](./EVALUATION-METRICS.md) for the metric contract and [EVALUATION-DEPLOYMENT-AUDIT.md](./EVALUATION-DEPLOYMENT-AUDIT.md) for deployment-path distinctions.
 
-`master` uses the corrected RSP-JS runtime dependency above. The Sensors tag remains the exact historical software snapshot and retains its historical dependency setup.
+`master` uses the corrected RSP-JS runtime dependency above. The evaluation snapshot remains the exact historical software snapshot and retains its historical dependency setup.
 
-Do not use historical commits or the Sensors tag as a credential source.
+Do not use historical commits or the evaluation snapshot as a credential source.
 
 ## Repository structure
 
@@ -188,7 +186,7 @@ Do not use historical commits or the Sensors tag as a credential source.
 
 ## Citation
 
-No `CITATION.cff` or final publication metadata is currently included. If you use Heimdall in academic work, please cite the corresponding Heimdall publication. Citation details will be updated after publication.
+No `CITATION.cff` is currently included. If you use Heimdall in academic work, cite this repository and its version or commit identifier.
 
 ## License
 
