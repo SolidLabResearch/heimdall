@@ -21,8 +21,17 @@ export function loadSourcePodCredentials(): SourcePodCredentials {
  * local credential file. Invalid configured files still fail loudly.
  */
 export function loadOptionalSourcePodCredentials(): SourcePodCredentials {
-    const filePath = process.env.HEIMDALL_SOURCE_POD_CREDENTIALS_FILE || path.resolve(process.cwd(), 'config/source-pod-credentials.local.json');
-    return fs.existsSync(filePath) ? JSON.parse(fs.readFileSync(filePath, 'utf8')) as SourcePodCredentials : {};
+    const configuredPath = process.env.HEIMDALL_SOURCE_POD_CREDENTIALS_FILE;
+    const filePath = configuredPath || path.resolve(process.cwd(), 'config/source-pod-credentials.local.json');
+    if (!fs.existsSync(filePath)) {
+        if (configuredPath) throw new Error(`Missing source-Pod credentials file configured by HEIMDALL_SOURCE_POD_CREDENTIALS_FILE: ${filePath}`);
+        return {};
+    }
+    try {
+        return JSON.parse(fs.readFileSync(filePath, 'utf8')) as SourcePodCredentials;
+    } catch (error) {
+        throw new Error(`Unable to load source-Pod credentials from ${filePath}: ${(error as Error).message}`);
+    }
 }
 
 export function loadAggregationPodCredentials(): AggregationPodCredentials {

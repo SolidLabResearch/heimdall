@@ -210,7 +210,7 @@ WHERE {
 
         expect(result.ldes_query).toContain(`<${streamUrl}>`);
         expect(result.ldes_query).not.toContain('undefined');
-        expect(discovery).toHaveBeenCalledWith(podUrl, expect.any(Array));
+        expect(discovery).toHaveBeenCalledWith(podUrl, expect.any(Array), undefined, expect.anything());
         const metrics = fs.readFileSync(path.join((handler as any).metric_writer.resultsDir, 'initialization.csv'), 'utf8');
         expect(metrics).toContain('stream_discovery');
         discovery.mockRestore();

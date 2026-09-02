@@ -34,4 +34,14 @@ describe('notification utilities', () => {
         expect(await create_subscription('http://example.test/subscribe', 'http://example.test/ldes/inbox/', undefined, subscriptionFetch)).toBe('created');
         expect(subscriptionFetch).toHaveBeenCalledWith('http://example.test/subscribe', expect.objectContaining({ method: 'POST' }));
     });
+
+    it('retains global fetch as the default transport', async () => {
+        const globalFetch = jest.spyOn(global, 'fetch').mockResolvedValue({
+            ok: true,
+            text: jest.fn().mockResolvedValue('<http://example.test/ldes/> <http://www.w3.org/ns/ldp#inbox> <inbox/> .'),
+        } as any);
+        await extract_ldp_inbox('http://example.test/ldes/');
+        expect(globalFetch).toHaveBeenCalledWith('http://example.test/ldes/');
+        globalFetch.mockRestore();
+    });
 });

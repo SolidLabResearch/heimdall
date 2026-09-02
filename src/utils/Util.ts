@@ -2,9 +2,8 @@ import { createHash } from 'crypto'
 import * as fs from 'fs';
 import { aggregationPodAccountFile } from '../config/privateCredentials';
 const { execFile } = require('child_process');
-const ldfetch = require('ldfetch');
-const ld_fetch = new ldfetch({});
 const N3 = require('n3');
+import { SourcePodAccess } from '../service/heimdall/SourcePodAccess';
 
 export interface DiscoveryTimingObserver {
     publicTypeIndexStart?: () => void;
@@ -139,13 +138,12 @@ export function insertion_sort(arr: string[]): string[] {
  * @param {string[]} interest_metrics - The array of interest metrics which are relevant and being searched inside Heimdall's pod.
  * @returns {Promise<string[]>} - The relevant streams.
  */
-export async function find_relevant_streams(solid_pod_url: string, interest_metrics: string[], observer?: DiscoveryTimingObserver): Promise<string[]> {
+export async function find_relevant_streams(solid_pod_url: string, interest_metrics: string[], observer?: DiscoveryTimingObserver, sourcePodAccess: SourcePodAccess = new SourcePodAccess()): Promise<string[]> {
     const relevant_streams: string[] = [];    
-    if (await if_exists_relevant_streams(solid_pod_url, interest_metrics, observer)) {
+    if (await if_exists_relevant_streams(solid_pod_url, interest_metrics, observer, sourcePodAccess)) {
         try {
-            const public_type_index = await find_public_type_index(solid_pod_url, observer);
-            const response = await ld_fetch.get(public_type_index);            
-            const store = new N3.Store(await response.triples);
+            const public_type_index = await find_public_type_index(solid_pod_url, observer, sourcePodAccess);
+            const store = await fetchRdfStore(public_type_index, sourcePodAccess, solid_pod_url);
             for (const quad of store) {
                 if (quad.predicate.value == "https://w3id.org/tree#view") {
                     relevant_streams.push(quad.object.value);
@@ -171,11 +169,10 @@ export async function find_relevant_streams(solid_pod_url: string, interest_metr
  * @param {string[]} interest_metrics - The array of interest metrics which are relevant and being searched inside Heimdall's pod.
  * @returns {Promise<boolean>} - Returns true if relevant streams exist, otherwise false.
  */
-export async function if_exists_relevant_streams(solid_pod_url: string, interest_metrics: string[], observer?: DiscoveryTimingObserver): Promise<boolean> {
+export async function if_exists_relevant_streams(solid_pod_url: string, interest_metrics: string[], observer?: DiscoveryTimingObserver, sourcePodAccess: SourcePodAccess = new SourcePodAccess()): Promise<boolean> {
     try {
-        const public_type_index = await find_public_type_index(solid_pod_url, observer);
-        const response = await ld_fetch.get(public_type_index);
-        const store = new N3.Store(await response.triples);
+        const public_type_index = await find_public_type_index(solid_pod_url, observer, sourcePodAccess);
+        const store = await fetchRdfStore(public_type_index, sourcePodAccess, solid_pod_url);
         for (const quad of store) {
             if (quad.predicate.value == "https://saref.etsi.org/core/relatesToProperty") {
                 if (interest_metrics.includes(quad.object.value)) {
@@ -196,12 +193,11 @@ export async function if_exists_relevant_streams(solid_pod_url: string, interest
  * @param {string} solid_pod_url - The URL of the Solid Pod.
  * @returns {Promise<string>} - The public type index.
  */
-export async function find_public_type_index(solid_pod_url: string, observer?: DiscoveryTimingObserver): Promise<string> {
+export async function find_public_type_index(solid_pod_url: string, observer?: DiscoveryTimingObserver, sourcePodAccess: SourcePodAccess = new SourcePodAccess()): Promise<string> {
     const profile_document = solid_pod_url + "profile/card";    
     try {
         observer?.publicTypeIndexStart?.();
-        const response = await ld_fetch.get(profile_document);
-        const store = new N3.Store(await response.triples);
+        const store = await fetchRdfStore(profile_document, sourcePodAccess, solid_pod_url);
         for (const quad of store) {            
             if (quad.predicate.value == "http://www.w3.org/ns/solid/terms#publicTypeIndex") {
                 observer?.publicTypeIndexEnd?.(quad.object.value);
@@ -215,4 +211,10 @@ export async function find_public_type_index(solid_pod_url: string, observer?: D
         console.log(`Error: ${error}`);
         return '';
     }
+}
+
+async function fetchRdfStore(resourceUrl: string, sourcePodAccess: SourcePodAccess, sourceResourceUrl: string): Promise<any> {
+    const response = await (await sourcePodAccess.fetchFor(resourceUrl, sourceResourceUrl))(resourceUrl, { headers: { Accept: 'text/turtle' } });
+    if (!response.ok) throw new Error(`Source RDF request failed with HTTP ${response.status}`);
+    return new N3.Store(new N3.Parser({ baseIRI: resourceUrl }).parse(await response.text()));
 }

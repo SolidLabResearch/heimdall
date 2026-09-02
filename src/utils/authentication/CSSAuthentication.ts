@@ -83,8 +83,8 @@ export async function generateToken(options: any) {
  * @param {Function} [fetch] - Optional fetch function to authenticate. Defaults to built-in fetch function.
  * @returns {Function} - The authenticated fetch function.
  */
-async function makeAuthenticatedFetch(credentials: any, fetch: any) {
-    const authFetch = await createAuthenticatedFetchFunction(credentials, fetch);
+async function makeAuthenticatedFetch(credentials: any, fetch: any, allowedOrigin?: string) {
+    const authFetch = await createAuthenticatedFetchFunction(credentials, fetch, allowedOrigin);
     return authFetch
 }
 
@@ -94,7 +94,7 @@ async function makeAuthenticatedFetch(credentials: any, fetch: any) {
  * @param {any} passedFetch - Optional fetch function to authenticate. Defaults to built-in fetch function.
  * @returns {Promise<Function>} - The authenticated fetch function.
  */
-async function createAuthenticatedFetchFunction(credentials: any, passedFetch: any) {
+async function createAuthenticatedFetchFunction(credentials: any, passedFetch: any, allowedOrigin?: string) {
     const { id, secret, idp } = credentials;
     const fetchFunction = passedFetch || fetch
 
@@ -127,7 +127,12 @@ async function createAuthenticatedFetchFunction(credentials: any, passedFetch: a
 
     // The DPoP key needs to be the same key as the one used in the previous step.
     // The Access token is the one generated in the previous step.
-    const authFetch = await authn.buildAuthenticatedFetch(fetchFunction, accessToken, { dpopKey });
+    const scopedFetch = allowedOrigin ? async (input: any, init: any = {}) => {
+        const target = new URL(typeof input === 'string' ? input : input.url);
+        if (target.origin !== allowedOrigin) throw new Error(`Authenticated source fetch refused cross-origin target ${target.origin}`);
+        return fetchFunction(input, { ...init, redirect: 'manual' });
+    } : fetchFunction;
+    const authFetch = await authn.buildAuthenticatedFetch(scopedFetch, accessToken, { dpopKey });
     // authFetch can now be used as a standard fetch function that will authenticate as your WebID.
     // This request will do a simple GET for example.
     return authFetch
@@ -137,9 +142,9 @@ async function createAuthenticatedFetchFunction(credentials: any, passedFetch: a
  * @param {any} credentials - Client Credentials Token.
  * @returns {Promise<Session>} - The resulting session.
  */
-export async function session_with_credentials(credentials: any): Promise<Session> {
+export async function session_with_credentials(credentials: any, allowedOrigin?: string): Promise<Session> {
     const session = new Session();
-    session.fetch = await makeAuthenticatedFetch(credentials, fetch);
+    session.fetch = await makeAuthenticatedFetch(credentials, fetch, allowedOrigin);
     session.info.isLoggedIn = true;
     return session
 }

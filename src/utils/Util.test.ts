@@ -36,6 +36,17 @@ describe('finding_public_type_index', () => {
         const result = await find_public_type_index(pod_url);
         expect(result).toBe('');
     });
+
+    it('uses configured source access for protected profile discovery', async () => {
+        const sourceFetch = jest.fn().mockResolvedValue({
+            ok: true,
+            text: jest.fn().mockResolvedValue('<https://pod.example/profile/card#me> <http://www.w3.org/ns/solid/terms#publicTypeIndex> <https://pod.example/settings/publicTypeIndex> .'),
+        });
+        const access = { fetchFor: jest.fn().mockResolvedValue(sourceFetch) };
+        await expect(find_public_type_index('https://pod.example/', undefined, access as any)).resolves.toBe('https://pod.example/settings/publicTypeIndex');
+        expect(access.fetchFor).toHaveBeenCalledWith('https://pod.example/profile/card', 'https://pod.example/');
+        expect(sourceFetch).toHaveBeenCalledWith('https://pod.example/profile/card', { headers: { Accept: 'text/turtle' } });
+    });
 });
 
 

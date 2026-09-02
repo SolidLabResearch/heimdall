@@ -3,7 +3,7 @@ import { loadOptionalSourcePodCredentials, SourcePodCredentials } from '../../co
 import { session_with_credentials } from '../../utils/authentication/CSSAuthentication';
 
 export type SourceFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-export type SourcePodSessionFactory = (credentials: { id: string; secret: string; idp: string }) => Promise<any>;
+export type SourcePodSessionFactory = (credentials: { id: string; secret: string; idp: string }, allowedOrigin?: string) => Promise<any>;
 
 /** Resolves optional source-Pod credentials once and reuses one session per configured source. */
 export class SourcePodAccess {
@@ -18,8 +18,11 @@ export class SourcePodAccess {
         return this.credentialKey(resourceUrl) !== undefined;
     }
 
-    public async fetchFor(resourceUrl: string): Promise<SourceFetch> {
-        const key = this.credentialKey(resourceUrl);
+    public async fetchFor(resourceUrl: string, sourceResourceUrl = resourceUrl): Promise<SourceFetch> {
+        let key = this.credentialKey(resourceUrl);
+        // A stream entry may intentionally cover same-origin discovered
+        // resources (inbox/subscription server). Never carry it across origins.
+        if (!key && this.sameOrigin(resourceUrl, sourceResourceUrl)) key = this.credentialKey(sourceResourceUrl);
         if (!key) return fetch;
         const session = await this.sessionFor(key);
         return session.fetch as SourceFetch;
@@ -33,12 +36,27 @@ export class SourcePodAccess {
     private credentialKey(resourceUrl: string): string | undefined {
         const matches = Object.keys(this.credentials).filter((configuredUrl) => {
             try {
-                return new URL(resourceUrl).toString().startsWith(new URL(configuredUrl).toString());
+                const resource = new URL(resourceUrl);
+                const configured = new URL(configuredUrl);
+                if (resource.origin !== configured.origin) return false;
+                const configuredPath = configured.pathname.replace(/\/+$/, '') || '/';
+                const resourcePath = resource.pathname;
+                return configuredPath === '/'
+                    ? resourcePath.startsWith('/')
+                    : resourcePath === configuredPath || resourcePath.startsWith(`${configuredPath}/`);
             } catch (_) {
                 return resourceUrl === configuredUrl;
             }
         });
         return matches.sort((a, b) => b.length - a.length)[0];
+    }
+
+    private sameOrigin(left: string, right: string): boolean {
+        try {
+            return new URL(left).origin === new URL(right).origin;
+        } catch (_) {
+            return false;
+        }
     }
 
     private sessionFor(key: string): Promise<any> {
@@ -48,7 +66,17 @@ export class SourcePodAccess {
             if (!credentials || !credentials.id || !credentials.secret || !credentials.idp) {
                 throw new Error(`Invalid source-Pod credentials configured for ${key}; expected id, secret, and idp.`);
             }
-            session = this.createSession(credentials);
+            let allowedOrigin: string;
+            try {
+                allowedOrigin = new URL(key).origin;
+            } catch (_) {
+                throw new Error(`Invalid source-Pod credential URL ${key}; expected an absolute URL.`);
+            }
+            const pending = this.createSession(credentials, allowedOrigin);
+            session = pending.catch((error: unknown) => {
+                if (this.sessions.get(key) === session) this.sessions.delete(key);
+                throw error;
+            });
             this.sessions.set(key, session);
         }
         return session;

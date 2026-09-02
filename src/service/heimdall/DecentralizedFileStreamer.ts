@@ -63,7 +63,6 @@ export class DecentralizedFileStreamer {
         this.stream_name = rsp_engine.getStream(this.ldes_stream);
         this.comunica_engine = new QueryEngine();
         this.observation_array = [];
-        this.subscribing_latest_events(this.stream_name);
         DecentralizedFileStreamer.connect_with_server(resolveHeimdallWebSocketUrl(HEIMDALL_SETUP)).then(() => {
             console.log(`The connection with the websocket server was established.`);
         });
@@ -233,10 +232,10 @@ export class DecentralizedFileStreamer {
             const sourceFetch = await this.sourcePodAccess.fetchFor(this.ldes_stream);
             const inbox = await extract_ldp_inbox(this.ldes_stream, undefined, sourceFetch);
             if (inbox !== undefined) {
-                const subscription_server = await extract_subscription_server(inbox, undefined, sourceFetch);
+                const subscription_server = await extract_subscription_server(inbox, undefined, await this.sourcePodAccess.fetchFor(inbox, this.ldes_stream));
                 if (subscription_server !== undefined) {
                     const server = subscription_server.location;
-                    const response_subscription = await create_subscription(server, inbox, undefined, sourceFetch);
+                    const response_subscription = await create_subscription(server, inbox, undefined, await this.sourcePodAccess.fetchFor(server, this.ldes_stream));
                     if (response_subscription) {
                         this.logger.info(`The subscription has been succesful.`);
                     } else {
@@ -265,7 +264,7 @@ export class DecentralizedFileStreamer {
      */
     async get_inbox_container(stream: string): Promise<string | undefined> {
         console.log(`Getting the inbox container from`, stream);
-        const ldes_in_ldp: LDESinLDP = new LDESinLDP(stream, new LDPCommunication());
+        const ldes_in_ldp: LDESinLDP = new LDESinLDP(stream, await this.sourcePodAccess.communicationFor(stream));
         const metadata = await ldes_in_ldp.readMetadata();
         for (const quad of metadata) {
             if (quad.predicate.value === 'http://www.w3.org/ns/ldp#inbox') {
@@ -299,7 +298,7 @@ export class DecentralizedFileStreamer {
             "sendTo": `${heimdallSetupConfig.heimdallHttpServerUrl}`
         };
 
-        const response = await fetch(webhook_notification_server, {
+        const response = await (await this.sourcePodAccess.fetchFor(webhook_notification_server, ldes_stream))(webhook_notification_server, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/ld+json',
@@ -326,7 +325,7 @@ export class DecentralizedFileStreamer {
             "type": "http://www.w3.org/ns/solid/notifications#WebSocketChannel2023",
             "topic": `${ldes_stream}`
         }
-        const repsonse = await fetch(notification_server, {
+        const repsonse = await (await this.sourcePodAccess.fetchFor(notification_server, ldes_stream))(notification_server, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/ld+json',
@@ -370,7 +369,7 @@ export class DecentralizedFileStreamer {
             "type": "http://www.w3.org/ns/solid/notifications#WebSocketChannel2023",
             "topic": `${inbox_container}`
         }
-        const repsonse = await fetch(notification_server, {
+        const repsonse = await (await this.sourcePodAccess.fetchFor(notification_server, ldes_stream))(notification_server, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/ld+json',

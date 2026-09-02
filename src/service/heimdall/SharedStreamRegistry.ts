@@ -176,10 +176,9 @@ export class SharedStreamRegistry {
     }
 
     private async createPhysicalSubscription(streamUrl: string, inbox: string): Promise<unknown> {
-        const sourceFetch = await this.sourcePodAccess.fetchFor(streamUrl);
-        const server = await extract_subscription_server(inbox, undefined, sourceFetch);
+        const server = await extract_subscription_server(inbox, undefined, await this.sourcePodAccess.fetchFor(inbox, streamUrl));
         if (!server) throw new Error(`No subscription server found for stream ${streamUrl}`);
-        return create_subscription(server.location, inbox, undefined, sourceFetch);
+        return create_subscription(server.location, inbox, undefined, await this.sourcePodAccess.fetchFor(server.location, streamUrl));
     }
 
     private async readBucketStrategy(streamUrl: string): Promise<string> {
@@ -191,7 +190,7 @@ export class SharedStreamRegistry {
     }
 
     private async fetchEvent(streamUrl: string, eventUrl: string): Promise<string> {
-        const response = await (await this.sourcePodAccess.fetchFor(streamUrl))(eventUrl, { method: 'GET', headers: { Accept: 'text/turtle' } });
+        const response = await (await this.sourcePodAccess.fetchFor(eventUrl, streamUrl))(eventUrl, { method: 'GET', headers: { Accept: 'text/turtle' } });
         return response.text();
     }
 }

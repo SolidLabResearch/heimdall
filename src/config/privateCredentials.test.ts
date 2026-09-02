@@ -41,4 +41,13 @@ describe('private credential configuration', () => {
         delete process.env.HEIMDALL_SOURCE_POD_CREDENTIALS_FILE;
         expect(loadOptionalSourcePodCredentials()).toEqual({});
     });
+
+    it('fails clearly for an explicitly missing or malformed source credential file', () => {
+        process.env.HEIMDALL_SOURCE_POD_CREDENTIALS_FILE = path.join(os.tmpdir(), 'does-not-exist-heimdall-source.json');
+        expect(() => loadOptionalSourcePodCredentials()).toThrow('Missing source-Pod credentials file');
+        const malformedPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'heimdall-credentials-')), 'malformed.json');
+        fs.writeFileSync(malformedPath, '{not-json');
+        process.env.HEIMDALL_SOURCE_POD_CREDENTIALS_FILE = malformedPath;
+        expect(() => loadOptionalSourcePodCredentials()).toThrow('Unable to load source-Pod credentials');
+    });
 });
